@@ -44,4 +44,13 @@
   .glass-panel {
     @apply bg-slate-900/60 backdrop-blur-md border border-white/10 shadow-xl;
   }
+
+  .indice-text {
+    font-style: italic;
+    color: #fbbf24; /* Un jaune orangé sympa */
+    background: rgba(251, 191, 36, 0.1);
+    padding: 10px;
+    border-left: 3px solid #fbbf24;
+    border-radius: 4px;
+  }
 }

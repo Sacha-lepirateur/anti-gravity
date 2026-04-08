@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react'
-import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, Popup, useMapEvents, Polyline } from 'react-leaflet'
 import L from 'leaflet'
 import { motion, AnimatePresence } from 'framer-motion'
+import confetti from 'canvas-confetti'
+import { GoogleMap, StreetViewPanorama, useJsApiLoader } from '@react-google-maps/api'
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║   🔧 CONFIGURE ICI — METS TES CLES API (DB + GOOGLE)    ║
@@ -54,6 +56,35 @@ function MapClickEvents({ onLocationClick, matched, pointsLocked }: { onLocation
   return null;
 }
 
+const StreetViewComponent = ({ lat, lng, matched }: { lat: number, lng: number, matched: boolean }) => {
+  const { isLoaded } = useJsApiLoader({
+    googleMapsApiKey: GOOGLE_MAPS_API_KEY
+  });
+
+  if (!isLoaded) return <div className="w-full h-full flex flex-col items-center justify-center bg-[#0f172a] border-0"><div className="spinner mb-3"></div><div className="text-slate-400 text-xs font-bold uppercase tracking-widest">Chargement...</div></div>;
+
+  return (
+    <div className={`w-full h-full transition-opacity duration-1000 ${matched ? 'opacity-30' : 'opacity-100'}`}>
+      <GoogleMap mapContainerStyle={{ width: '100%', height: '100%' }}>
+        <StreetViewPanorama
+          options={{
+            position: { lat, lng },
+            visible: true,
+            addressControl: false, // Cache l'adresse pour ne pas tricher !
+            showRoadLabels: false,
+            zoomControl: true,
+            disableDefaultUI: true, // Cache l'interface
+            clickToGo: true,
+            linksControl: true,
+            panControl: true,
+            enableCloseButton: false,
+          }}
+        />
+      </GoogleMap>
+    </div>
+  );
+};
+
 function App() {
   const [userPos, setUserPos] = useState<{ lat: number, lon: number } | null>(null);
 
@@ -76,8 +107,8 @@ function App() {
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [matched, setMatched] = useState(false);
-  const [matchStatus, setMatchStatus] = useState<'MATCH' | 'SUPER_LIKE' | 'LIKE' | 'GHOST' | null>(null);
-  
+  const [matchStatus, setMatchStatus] = useState<'MATCH' | 'SUPER_LIKE' | 'LIKE' | 'GHOST' | 'TIME_OUT' | null>(null);
+
   const [guessMarker, setGuessMarker] = useState<{ lat: number; lng: number } | null>(null);
   const [distance, setDistance] = useState<number | null>(null);
 
@@ -85,11 +116,36 @@ function App() {
   const [pointsLocked, setPointsLocked] = useState(false);
   const [jokers, setJokers] = useState(3);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(30);
+
+  useEffect(() => {
+    if (loading || users.length === 0 || matched || pointsLocked) return;
+
+    if (timeLeft > 0) {
+      const timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
+      return () => clearTimeout(timer);
+    } else {
+      setMatchStatus('TIME_OUT');
+      setPointsLocked(true);
+    }
+  }, [timeLeft, loading, users, matched, pointsLocked]);
 
   // Match / Messages States
   const [matchedUsers, setMatchedUsers] = useState<Utilisateur[]>([]);
   const [showSidebar, setShowSidebar] = useState(false);
   const [activeChat, setActiveChat] = useState<Utilisateur | null>(null);
+
+  // My Profile States
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [myProfile, setMyProfile] = useState<{ pseudo: string, photo: string, bio: string, streak: number, superLikes: number }>(() => {
+    const saved = localStorage.getItem('my_geomatch_profile');
+    return saved ? JSON.parse(saved) : { pseudo: 'Aventurier', photo: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Aventurier', bio: "Prêt(e) à découvrir de nouveaux lieux ! 🌍", streak: 0, superLikes: 0 };
+  });
+
+  useEffect(() => {
+    localStorage.setItem('my_geomatch_profile', JSON.stringify(myProfile));
+  }, [myProfile]);
 
   useEffect(() => {
     async function fetchUtilisateurs() {
@@ -135,15 +191,31 @@ function App() {
       setMatchStatus('MATCH');
       setMatched(true);
       setMatchedUsers(prev => prev.find(u => u.nom === user.nom) ? prev : [...prev, user]);
+
+      confetti({
+        particleCount: 150,
+        spread: 90,
+        origin: { y: 0.6 },
+        colors: ['#f43f5e', '#ffffff', '#fbbf24']
+      });
+
+      setMyProfile(prev => {
+        const newStreak = (prev.streak || 0) + 1;
+        if (newStreak % 3 === 0) setJokers(j => j + 1);
+        return { ...prev, streak: newStreak };
+      });
     } else if (distKm <= 50) {
       setMatchStatus('SUPER_LIKE');
       setPointsLocked(true);
+      setMyProfile(prev => ({ ...prev, streak: 0, superLikes: (prev.superLikes || 0) + 1 }));
     } else if (distKm <= 80) {
       setMatchStatus('LIKE');
       setPointsLocked(true);
+      setMyProfile(prev => ({ ...prev, streak: 0 }));
     } else {
       setMatchStatus('GHOST');
       setPointsLocked(true);
+      setMyProfile(prev => ({ ...prev, streak: 0 }));
     }
   };
 
@@ -155,6 +227,7 @@ function App() {
     setDistance(null);
     setPointsLocked(false);
     setShowProfileSheet(false);
+    setTimeLeft(30);
   };
 
   const useJoker = () => {
@@ -164,6 +237,7 @@ function App() {
       setMatchStatus(null);
       setGuessMarker(null);
       setDistance(null);
+      setTimeLeft(30);
     }
   };
 
@@ -199,23 +273,33 @@ function App() {
 
       {/* ── HEADER (Floating Glass Panel) ── */}
       <header className="absolute top-0 inset-x-0 z-[100] px-6 py-4 pt-safe flex items-center justify-between glass-panel rounded-b-3xl">
-        <div className="font-serif text-2xl font-black tracking-tight drop-shadow-md">
-          Geo<span className="text-rose-500">Match</span> 💘
+        <div className="font-serif text-2xl font-black tracking-tight drop-shadow-md flex items-center gap-3">
+          <button onClick={() => setShowProfileMenu(true)} className="relative active:scale-95 transition-transform group shadow-md shrink-0">
+            <div className="absolute inset-0 bg-rose-500 rounded-full blur opacity-20 group-hover:opacity-60 transition"></div>
+            <img src={myProfile.photo} className="w-10 h-10 rounded-full object-cover border-2 border-slate-600 relative z-10 bg-slate-800" alt="Profil" />
+          </button>
+          <div>
+            Geo<span className="text-rose-500">Match</span> <span className="text-xl">💘</span>
+          </div>
         </div>
         <div className="flex items-center gap-3">
-          
-          <button 
-            onClick={() => setShowSidebar(true)} 
+
+          <button
+            onClick={() => setShowSidebar(true)}
             className="relative w-10 h-10 rounded-full bg-slate-900 border border-white/20 flex items-center justify-center hover:bg-slate-800 transition shadow-md active:scale-95"
           >
             💬
             {matchedUsers.length > 0 && <span className="absolute top-0 right-0 w-3 h-3 bg-rose-500 rounded-full border border-slate-900 animate-pulse" />}
           </button>
 
+          <div className={`text-[10px] font-bold px-3 py-1.5 rounded-full border shadow-md flex items-center gap-1 transition-colors ${timeLeft <= 5 && !matched && !pointsLocked ? 'bg-rose-900/80 border-rose-400/30 text-rose-300 animate-pulse' : 'bg-slate-900/80 border-indigo-400/30 text-indigo-300'}`}>
+            <span className="text-sm">⏳</span> {timeLeft}s
+          </div>
+
           <div className="text-[10px] font-bold px-3 py-1.5 bg-slate-900/80 rounded-full border border-indigo-400/30 text-indigo-300 shadow-md flex items-center gap-1">
             <span className="text-sm">🃏</span> x {jokers}
           </div>
-          
+
         </div>
       </header>
 
@@ -234,12 +318,7 @@ function App() {
           >
             {/* GeoGuessr Street View (si la clé API est ajoutée) ou photo floutée par défaut */}
             {GOOGLE_MAPS_API_KEY && GOOGLE_MAPS_API_KEY !== "" ? (
-              <iframe
-                title={`Street View de ${user.nom}`}
-                className={`w-full h-full border-0 transition-opacity duration-1000 ${matched ? 'opacity-30' : 'opacity-100'}`}
-                src={`https://www.google.com/maps/embed/v1/streetview?key=${GOOGLE_MAPS_API_KEY}&location=${user.latitude},${user.longitude}&heading=0&pitch=0&fov=90`}
-                allowFullScreen
-              />
+              <StreetViewComponent lat={user.latitude} lng={user.longitude} matched={matched} />
             ) : (
               <img
                 src={user.photo_url}
@@ -256,10 +335,9 @@ function App() {
               <h2 className={`font-serif text-[2.5rem] font-bold leading-none mb-2 drop-shadow-lg transition-all duration-[800ms] ${matched ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'}`}>
                 {user.nom}
               </h2>
-              <div className="flex items-start gap-2">
-                <span className="text-rose-400 text-lg">💡</span>
-                <p className="text-sm md:text-base text-slate-200 font-medium leading-snug drop-shadow-md">
-                  "{user.indice}"
+              <div className="flex items-start gap-2 mt-2 w-full">
+                <p className="indice-text text-sm md:text-base font-medium leading-snug drop-shadow-md w-full">
+                  <span className="mr-2">💡</span>"{user.indice}"
                 </p>
               </div>
             </div>
@@ -271,7 +349,7 @@ function App() {
       {/* ── ACTION DIVIDER AREA (Floating Pills between map and card) ── */}
       <div className="absolute top-[50dvh] lg:top-[45dvh] inset-x-0 z-40 flex justify-center -translate-y-[60%] pointer-events-none">
         <AnimatePresence mode="wait">
-          {!matched && distance === null && (
+          {!matched && !matchStatus && (
             <motion.div
               key="hint"
               initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }}
@@ -281,29 +359,34 @@ function App() {
             </motion.div>
           )}
 
-          {!matched && distance !== null && matchStatus && (
+          {!matched && matchStatus && (
             <motion.div
               key="distance"
               initial={{ scale: 0, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0, opacity: 0 }}
               className="flex flex-col items-center gap-3 pointer-events-auto"
             >
-              
+
               {/* EVALUATION CHIP */}
               {matchStatus === 'SUPER_LIKE' && (
-                  <div className="glass-panel bg-yellow-900/90 border border-yellow-500/50 px-6 py-3 rounded-full shadow-[0_10px_30px_rgba(234,179,8,0.2)] flex flex-col items-center gap-1">
-                    <div className="flex items-center gap-2 font-bold text-yellow-400 text-sm"><span className="text-xl">🌟</span> Super Like (À {distance} km)</div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-yellow-300/80">Oh, tu as presque eu le profil !</span>
-                  </div>
+                <div className="glass-panel bg-yellow-900/90 border border-yellow-500/50 px-6 py-3 rounded-full shadow-[0_10px_30px_rgba(234,179,8,0.2)] flex flex-col items-center gap-1">
+                  <div className="flex items-center gap-2 font-bold text-yellow-400 text-sm"><span className="text-xl">🌟</span> Super Like (À {distance} km)</div>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-yellow-300/80">Oh, tu as presque eu le profil !</span>
+                </div>
               )}
               {matchStatus === 'LIKE' && (
-                  <div className="glass-panel bg-blue-900/90 border border-blue-500/50 px-6 py-3.5 rounded-full text-sm font-bold text-blue-300 shadow-lg flex items-center gap-2">
-                    <span className="text-xl">👍</span> Like (À {distance} km)
-                  </div>
+                <div className="glass-panel bg-blue-900/90 border border-blue-500/50 px-6 py-3.5 rounded-full text-sm font-bold text-blue-300 shadow-lg flex items-center gap-2">
+                  <span className="text-xl">👍</span> Pas mal ! Like (À {distance} km)
+                </div>
               )}
               {matchStatus === 'GHOST' && (
-                  <div className="glass-panel bg-slate-800/95 border border-slate-500/40 px-6 py-3.5 rounded-full text-sm font-bold text-slate-300 shadow-lg flex items-center gap-2">
-                    <span className="text-xl opacity-60">👻</span> Ghost (T'es à {distance} km)
-                  </div>
+                <div className="glass-panel bg-slate-800/95 border border-slate-500/40 px-6 py-3.5 rounded-full text-sm font-bold text-slate-300 shadow-lg flex items-center gap-2">
+                  <span className="text-xl opacity-60">👻</span> Aïe... Tu t'es perdu à {distance} km !
+                </div>
+              )}
+              {matchStatus === 'TIME_OUT' && (
+                <div className="glass-panel bg-slate-800/95 border border-slate-500/40 px-6 py-3.5 rounded-full text-sm font-bold text-slate-300 shadow-lg flex items-center gap-2">
+                  <span className="text-xl opacity-60">⏳</span> Temps écoulé !
+                </div>
               )}
 
               <div className="flex gap-2">
@@ -319,9 +402,13 @@ function App() {
                 {pointsLocked && (
                   <button
                     onClick={nextUser}
-                    className="glass-panel bg-slate-800/80 hover:bg-slate-700 border border-slate-600 text-white text-sm font-bold px-5 py-2.5 rounded-full shadow-lg active:scale-95 transition-transform flex items-center gap-1"
+                    className={
+                      matchStatus === 'SUPER_LIKE' || matchStatus === 'LIKE'
+                        ? "glass-panel bg-rose-500/90 hover:bg-rose-400 border border-rose-400 text-white text-sm font-bold px-5 py-2.5 rounded-full shadow-[0_5px_20px_rgba(244,63,94,0.4)] active:scale-95 transition-transform flex items-center gap-1"
+                        : "glass-panel bg-slate-800/80 hover:bg-slate-700 border border-slate-600 text-white text-sm font-bold px-5 py-2.5 rounded-full shadow-lg active:scale-95 transition-transform flex items-center gap-1"
+                    }
                   >
-                    Passer 👉
+                    {matchStatus === 'SUPER_LIKE' || matchStatus === 'LIKE' ? 'CONTINUER 💌' : 'Passer 👉'}
                   </button>
                 )}
               </div>
@@ -361,10 +448,17 @@ function App() {
             </Marker>
           )}
 
-          {matched && (
+          {(matched || pointsLocked) && (
             <Marker position={[user.latitude, user.longitude]} icon={defaultIcon}>
-              <Popup className="font-sans font-bold text-rose-500">💘 {user.nom}</Popup>
+              <Popup className="font-sans font-bold text-rose-500">🎯 {user.nom} était ici !</Popup>
             </Marker>
+          )}
+
+          {guessMarker && (matched || pointsLocked) && (
+            <Polyline
+              positions={[[guessMarker.lat, guessMarker.lng], [user.latitude, user.longitude]]}
+              pathOptions={{ color: '#fbbf24', dashArray: '5, 8', weight: 4, opacity: 0.8 }}
+            />
           )}
         </MapContainer>
 
@@ -393,57 +487,145 @@ function App() {
           >
             <div className="p-5 bg-slate-900 border-b border-white/5 flex justify-between items-center pt-safe cursor-default">
               <h2 className="font-bold text-white font-serif text-xl tracking-tight">Matchs <span className="text-rose-500">({matchedUsers.length})</span></h2>
-              <button 
+              <button
                 onClick={() => { setShowSidebar(false); setActiveChat(null); }}
                 className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white"
               >✕</button>
             </div>
-            
+
             <div className="flex-grow overflow-y-auto">
-               {!activeChat ? (
-                  matchedUsers.length === 0 ? (
-                    <div className="p-8 text-center text-slate-400 text-sm leading-relaxed mt-10">
-                      <span className="text-4xl block mb-4 opacity-50">👻</span>
-                      Aucun match pour le moment. Fais tes preuves à moins de 30km sur la carte !
-                    </div>
-                  ) : (
-                    <ul className="p-3 space-y-2">
-                       {matchedUsers.map((mu, i) => (
-                           <li key={i} onClick={() => setActiveChat(mu)} className="group flex items-center gap-4 p-3 rounded-2xl hover:bg-slate-800 cursor-pointer transition-colors border border-transparent hover:border-white/5">
-                              <div className="relative">
-                                <img src={mu.photo_url} className="w-14 h-14 rounded-full object-cover shadow-md" />
-                                <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-slate-900 rounded-full" />
-                              </div>
-                              <div className="flex flex-col">
-                                <span className="font-bold text-slate-100">{mu.nom}</span>
-                                <span className="text-xs text-rose-400 font-medium font-mono">1 Nouveau profil</span>
-                              </div>
-                           </li>
-                       ))}
-                    </ul>
-                  )
-               ) : (
-                  <div className="flex flex-col h-full bg-[#0b1121]">
-                     <div className="p-3 bg-slate-900 flex items-center gap-3 shadow-md">
-                        <button onClick={() => setActiveChat(null)} className="text-slate-400 hover:text-white p-1 ml-1 text-lg">←</button>
-                        <img src={activeChat.photo_url} className="w-9 h-9 rounded-full object-cover" />
-                        <span className="font-bold text-white text-sm">{activeChat.nom}</span>
-                     </div>
-                     <div className="flex-grow p-4 overflow-y-auto space-y-4">
-                        {/* Simulation message d'accueil */}
-                        <div className="bg-rose-500/20 text-rose-200 text-[10px] uppercase font-bold text-center tracking-widest py-1 px-3 rounded-full mx-auto w-max mb-4">
-                           Nouveau Match (Moins de 30km) !
-                        </div>
-                        <div className="bg-slate-800 border border-white/5 p-4 rounded-2xl rounded-tl-sm text-sm text-slate-200 shadow-lg w-[85%] relative">
-                           Salut ! Trop fort, tu m'as trouvé en plein dans le mille ! 😊
-                        </div>
-                     </div>
-                     <div className="p-4 bg-slate-900 border-t border-white/5 flex gap-2">
-                        <input type="text" placeholder="Écrire un message..." className="flex-grow bg-slate-950 border border-white/10 rounded-full px-5 py-2.5 text-sm text-white focus:outline-none focus:border-rose-500" />
-                        <button className="w-10 h-10 shrink-0 rounded-full bg-rose-500 flex items-center justify-center shadow-lg active:scale-95 transition-transform text-white">💌</button>
-                     </div>
+              {!activeChat ? (
+                matchedUsers.length === 0 ? (
+                  <div className="p-8 text-center text-slate-400 text-sm leading-relaxed mt-10">
+                    <span className="text-4xl block mb-4 opacity-50">👻</span>
+                    Aucun match pour le moment. Fais tes preuves à moins de 30km sur la carte !
                   </div>
-               )}
+                ) : (
+                  <ul className="p-3 space-y-2">
+                    {matchedUsers.map((mu, i) => (
+                      <li key={i} onClick={() => setActiveChat(mu)} className="group flex items-center gap-4 p-3 rounded-2xl hover:bg-slate-800 cursor-pointer transition-colors border border-transparent hover:border-white/5">
+                        <div className="relative">
+                          <img src={mu.photo_url} className="w-14 h-14 rounded-full object-cover shadow-md" />
+                          <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-slate-900 rounded-full" />
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="font-bold text-slate-100">{mu.nom}</span>
+                          <span className="text-xs text-rose-400 font-medium font-mono">1 Nouveau profil</span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )
+              ) : (
+                <div className="flex flex-col h-full bg-[#0b1121]">
+                  <div className="p-3 bg-slate-900 flex items-center gap-3 shadow-md">
+                    <button onClick={() => setActiveChat(null)} className="text-slate-400 hover:text-white p-1 ml-1 text-lg">←</button>
+                    <img src={activeChat.photo_url} className="w-9 h-9 rounded-full object-cover" />
+                    <span className="font-bold text-white text-sm">{activeChat.nom}</span>
+                  </div>
+                  <div className="flex-grow p-4 overflow-y-auto space-y-4">
+                    {/* Simulation message d'accueil */}
+                    <div className="bg-rose-500/20 text-rose-200 text-[10px] uppercase font-bold text-center tracking-widest py-1 px-3 rounded-full mx-auto w-max mb-4">
+                      Nouveau Match (Moins de 30km) !
+                    </div>
+                    <div className="bg-slate-800 border border-white/5 p-4 rounded-2xl rounded-tl-sm text-sm text-slate-200 shadow-lg w-[85%] relative">
+                      Salut ! Trop fort, tu m'as trouvé en plein dans le mille ! 😊
+                    </div>
+                  </div>
+                  <div className="p-4 bg-slate-900 border-t border-white/5 flex gap-2">
+                    <input type="text" placeholder="Écrire un message..." className="flex-grow bg-slate-950 border border-white/10 rounded-full px-5 py-2.5 text-sm text-white focus:outline-none focus:border-rose-500" />
+                    <button className="w-10 h-10 shrink-0 rounded-full bg-rose-500 flex items-center justify-center shadow-lg active:scale-95 transition-transform text-white">💌</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── MY PROFILE MENU (Left Sidebar) ── */}
+      <AnimatePresence>
+        {showProfileMenu && (
+          <motion.div
+            initial={{ x: "-100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "-100%" }}
+            transition={{ type: "spring", damping: 25, stiffness: 200 }}
+            className="fixed inset-y-0 left-0 w-80 max-w-[85vw] bg-slate-950 border-r border-white/10 shadow-2xl z-[12000] flex flex-col pointer-events-auto"
+          >
+            <div className="p-5 bg-slate-900 border-b border-white/5 flex justify-between items-center pt-safe cursor-default">
+              <h2 className="font-bold text-white font-serif text-xl tracking-tight">Mon Profil</h2>
+              <button
+                onClick={() => { setShowProfileMenu(false); setIsEditingProfile(false); }}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white"
+              >✕</button>
+            </div>
+
+            <div className="flex-grow overflow-y-auto p-6 relative">
+              {isEditingProfile ? (
+                <div className="flex flex-col gap-5">
+                  <div className="text-center font-bold text-indigo-400 mb-2">Modifier mon profil</div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">Photo URL</label>
+                    <input
+                      type="text"
+                      value={myProfile.photo}
+                      onChange={(e) => setMyProfile({ ...myProfile, photo: e.target.value })}
+                      className="w-full mt-1.5 bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    />
+                    <button onClick={() => setMyProfile({ ...myProfile, photo: `https://api.dicebear.com/7.x/avataaars/svg?seed=${Math.random()}` })} className="text-[11px] text-indigo-400 mt-2 hover:text-indigo-300 font-medium px-1 underline underline-offset-2">🔄 Générer un avatar aléatoire</button>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">Pseudo</label>
+                    <input
+                      type="text"
+                      value={myProfile.pseudo}
+                      onChange={(e) => setMyProfile({ ...myProfile, pseudo: e.target.value })}
+                      className="w-full mt-1.5 bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">Ma Bio</label>
+                    <textarea
+                      value={myProfile.bio}
+                      onChange={(e) => setMyProfile({ ...myProfile, bio: e.target.value })}
+                      className="w-full mt-1.5 bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors resize-none h-28"
+                    />
+                  </div>
+                  <button onClick={() => setIsEditingProfile(false)} className="mt-4 w-full bg-indigo-500 hover:bg-indigo-400 text-white font-bold py-3.5 rounded-full shadow-[0_5px_20px_rgba(99,102,241,0.3)] active:scale-95 transition-transform flex items-center justify-center gap-2">
+                    Enregistrer ✔️
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center text-center mt-2">
+                  <div className="relative group">
+                    <img src={myProfile.photo} alt="Mon Profil" className="w-36 h-36 bg-slate-800 rounded-full object-cover border-4 border-slate-800 shadow-xl" />
+                    <button onClick={() => setIsEditingProfile(true)} className="absolute bottom-1 right-1 w-11 h-11 bg-rose-500 rounded-full border-4 border-slate-950 flex items-center justify-center text-white text-lg shadow-lg hover:bg-rose-400 hover:scale-105 active:scale-95 transition-all">
+                      🖍️
+                    </button>
+                  </div>
+                  <h3 className="mt-6 text-3xl font-serif font-bold text-white drop-shadow-md">{myProfile.pseudo}</h3>
+                  <div className="bg-slate-900 border border-white/5 rounded-3xl p-5 mt-8 w-full shadow-inner relative text-left">
+                    <span className="absolute -top-3 left-6 bg-slate-950 px-3 text-[10px] font-black text-rose-400 tracking-widest rounded-full border border-white/5 py-1">MA BIO</span>
+                    <p className="text-slate-300 text-sm leading-relaxed mt-1 font-medium whitespace-pre-wrap">{myProfile.bio}</p>
+                  </div>
+
+                  <div className="w-full grid grid-cols-2 gap-4 mt-6">
+                    <div className="bg-slate-900 rounded-3xl p-4 flex flex-col items-center justify-center border border-white/5 shadow-md relative overflow-hidden group">
+                      <div className="absolute inset-0 bg-gradient-to-t from-orange-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <span className="text-3xl mb-2 opacity-80 relative z-10 group-hover:scale-110 transition-transform">🔥</span>
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider text-center relative z-10">Série de Matchs</span>
+                      <span className="font-mono text-xl font-bold text-white mt-1 relative z-10">{myProfile.streak || 0}</span>
+                    </div>
+                    <div className="bg-slate-900 rounded-3xl p-4 flex flex-col items-center justify-center border border-white/5 shadow-md relative overflow-hidden group">
+                      <div className="absolute inset-0 bg-gradient-to-t from-yellow-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <span className="text-3xl mb-2 opacity-80 relative z-10 group-hover:scale-110 transition-transform">⭐</span>
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider text-center relative z-10">Super Likes</span>
+                      <span className="font-mono text-xl font-bold text-white mt-1 relative z-10">{myProfile.superLikes || 0}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </motion.div>
         )}
