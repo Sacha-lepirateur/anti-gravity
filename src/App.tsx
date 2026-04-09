@@ -10,6 +10,7 @@ import confetti from 'canvas-confetti'
 const SUPABASE_URL = "https://vromnbvyylhtpxgfwhkt.supabase.co"; // ← ton URL
 const SUPABASE_ANON_KEY = "sb_publishable_O__eJlMAsw8-Cgw2_5vmsw_EHfoXjg1"; // ← ta clé anon
 const GOOGLE_MAPS_API_KEY: string = "AIzaSyAmMk8Lr_fiZ32RdrUT_SHsV8ouvDVG-m0"; // ← METS TA CLE STREET VIEW ICI !
+const HUGGINGFACE_API_KEY: string = import.meta.env.VITE_HUGGINGFACE_API_KEY || ""; // ← clé Hugging Face dans .env, optionnel
 
 const redIcon = L.icon({
   iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
@@ -242,6 +243,37 @@ function App() {
         [chatKey]: [...(prev[chatKey] || []), { ...messageData, id: Date.now().toString() }]
       }));
       setNewMessage('');
+
+      // Générer une réponse automatique de l'IA après 2-5 secondes
+      const currentMessages = messages[chatKey] || [];
+      const delay = 2000 + Math.random() * 3000; // 2-5 secondes
+      
+      setTimeout(async () => {
+        const aiResponse = await generateAIResponse(content, receiver, [...currentMessages, { ...messageData, id: Date.now().toString() }]);
+        
+        const aiMessageData = {
+          sender: receiver,
+          receiver: myProfile.pseudo,
+          content: aiResponse,
+          timestamp: new Date().toISOString()
+        };
+
+        // Sauvegarder la réponse IA dans la DB aussi
+        try {
+          await supabaseFetch('messages', {
+            method: 'POST',
+            body: JSON.stringify(aiMessageData)
+          });
+        } catch (err) {
+          console.log('Error saving AI response:', err);
+        }
+
+        setMessages(prev => ({
+          ...prev,
+          [chatKey]: [...(prev[chatKey] || []), { ...aiMessageData, id: Date.now().toString() + '_ai' }]
+        }));
+      }, delay);
+
     } catch (err) {
       console.log('Error sending message:', err);
     }
@@ -314,6 +346,69 @@ function App() {
       setDistance(null);
       setTimeLeft(30);
     }
+  };
+
+  // IA Response Generator
+  const generateAIResponse = async (userMessage: string, receiverName: string, conversationHistory: Message[]) => {
+    try {
+      // Si on a une clé Hugging Face, on utilise l'API
+      if (HUGGINGFACE_API_KEY) {
+        const context = conversationHistory.slice(-5).map(msg => 
+          `${msg.sender === myProfile.pseudo ? 'Moi' : receiverName}: ${msg.content}`
+        ).join('\n');
+
+        const prompt = `Tu es ${receiverName}, un utilisateur d'une app de rencontre. Réponds de manière naturelle et engageante à ce message. Contexte de la conversation:\n${context}\n\nMessage reçu: "${userMessage}"\n\nRéponse:`;
+
+        const response = await fetch('https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${HUGGINGFACE_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            inputs: prompt,
+            parameters: {
+              max_length: 100,
+              temperature: 0.8,
+              do_sample: true
+            }
+          })
+        });
+
+        const data = await response.json();
+        return data[0]?.generated_text?.split('Réponse:')[1]?.trim() || getFallbackResponse(userMessage);
+      } else {
+        // Réponses prédéfinies si pas de clé API
+        return getFallbackResponse(userMessage);
+      }
+    } catch (error) {
+      console.log('Erreur IA:', error);
+      return getFallbackResponse(userMessage);
+    }
+  };
+
+  const getFallbackResponse = (userMessage: string): string => {
+    const responses = {
+      'salut': ['Salut ! 😊', 'Hey ! Comment ça va ?', 'Salut toi !'],
+      'ça va': ['Super et toi ?', 'Bien merci ! Et toi ?', 'Ça roule !'],
+      'quoi': ['Rien de spécial, et toi ?', 'Je me détends un peu', 'Je pense à toi 😏'],
+      'où': ['Je suis dans le coin, et toi ?', 'Pas loin d\'ici !', 'Dans la région'],
+      'âge': ['J\'ai 25 ans, et toi ?', '24 ans !', '25 ans 😊'],
+      'travail': ['Je suis développeur', 'Je travaille dans la tech', 'Je suis designer'],
+      'loisir': ['J\'aime voyager et découvrir', 'La musique et les sorties', 'Le sport et la nature'],
+      'rencontre': ['On se voit bientôt ?', 'Ça te dit qu\'on se rencontre ?', 'On pourrait se voir !'],
+      'default': ['Intéressant !', 'Ah oui ?', 'Raconte-moi plus !', 'C\'est cool ça', 'J\'adore !']
+    };
+
+    const lowerMessage = userMessage.toLowerCase();
+    
+    for (const [key, value] of Object.entries(responses)) {
+      if (key !== 'default' && lowerMessage.includes(key)) {
+        return value[Math.floor(Math.random() * value.length)];
+      }
+    }
+    
+    return responses.default[Math.floor(Math.random() * responses.default.length)];
   };
 
   if (loading) {
