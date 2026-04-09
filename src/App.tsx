@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents, Polyline } from 'react-leaflet'
 import L from 'leaflet'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -96,7 +96,7 @@ function App() {
           lon: pos.coords.longitude
         });
       },
-      (err) => console.log("Localisation refusée"),
+      (err) => console.log("Localisation refusée", err),
       { enableHighAccuracy: true }
     );
   }, []);
