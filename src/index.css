@@ -16,8 +16,8 @@
   body,
   html,
   #root {
-    @apply h-[100dvh] w-full overflow-hidden bg-slate-950 text-white font-sans;
-    overscroll-behavior-y: none;
+    @apply h-auto min-h-[100dvh] w-full bg-slate-950 text-white font-sans;
+    overflow-x: hidden;
   }
 }
 

@@ -56,7 +56,34 @@ function MapClickEvents({ onLocationClick, matched, pointsLocked }: { onLocation
   return null;
 }
 
+const StreetViewComponent = ({ lat, lng, matched }: { lat: number, lng: number, matched: boolean }) => {
+  const { isLoaded } = useJsApiLoader({
+    googleMapsApiKey: GOOGLE_MAPS_API_KEY
+  });
 
+  if (!isLoaded) return <div className="w-full h-full flex flex-col items-center justify-center bg-[#1f2937] border-0"><div className="spinner mb-3"></div><div className="text-slate-400 text-xs font-bold uppercase tracking-widest">Chargement...</div></div>;
+
+  return (
+    <div className="w-full h-full" style={{ pointerEvents: matched ? 'none' : 'auto' }}>
+      <GoogleMap mapContainerStyle={{ width: '100%', height: '100%' }}>
+        <StreetViewPanorama
+          options={{
+            position: { lat, lng },
+            visible: true,
+            addressControl: false, // Cache l'adresse et "Sans titre" pour ne pas tricher
+            showRoadLabels: false,
+            zoomControl: true,
+            disableDefaultUI: true, // Cache toutes les UI superflues de Google
+            clickToGo: true,
+            linksControl: true,
+            panControl: true,
+            enableCloseButton: false,
+          }}
+        />
+      </GoogleMap>
+    </div>
+  );
+};
 
 function App() {
   const [userPos, setUserPos] = useState<{ lat: number, lon: number } | null>(null);
@@ -337,7 +364,7 @@ function App() {
             <div style={{ display: 'flex', gap: '20px', alignItems: 'start', marginTop: '20px', width: '100%' }}>
               
               {/* COLONNE GAUCHE : Street View (70% de largeur) */}
-              <div style={{ flex: 7, height: '500px', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 4px 15px rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{ flex: 7, height: '500px', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 4px 15px rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', position: 'relative' }}>
                 <iframe
                   width="100%"
                   height="100%"
@@ -345,6 +372,12 @@ function App() {
                   loading="lazy"
                   src={`https://www.google.com/maps/embed/v1/streetview?key=${GOOGLE_MAPS_API_KEY}&location=${user.latitude},${user.longitude}`}
                 ></iframe>
+                
+                {/* Panneau venant cacher le bandeau d'information (carré rouge) de Google Maps Embed */}
+                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '90px', background: 'linear-gradient(180deg, #111827 0%, rgba(17,24,39,0.8) 70%, transparent 100%)', pointerEvents: 'none', zIndex: 10 }} />
+                <div style={{ position: 'absolute', top: '10px', left: '-1px', width: '380px', height: '65px', display: 'flex', alignItems: 'center', background: '#0f172a', borderRadius: '0 8px 8px 0', border: '1px solid rgba(255,255,255,0.1)', borderLeft: 'none', color: 'white', fontWeight: 'bold', fontSize: '18px', zIndex: 11, padding: '0 20px', boxShadow: '4px 4px 15px rgba(0,0,0,0.5)', pointerEvents: 'none' }}>
+                  🕵️‍♂️ Lieu Mystère
+                </div>
               </div>
 
               {/* COLONNE DROITE : Infos de la personne (30% de largeur) */}
@@ -361,7 +394,7 @@ function App() {
             {/* Bouton "CONTINUER 💌" centré sur une ligne avec marges aérées */}
             <div style={{ width: '100%', display: 'flex', justifyContent: 'center', marginTop: '40px', marginBottom: '40px' }}>
               <button 
-                onClick={matched ? nextUser : undefined}
+                onClick={matched ? nextUser : handleValidateGuess}
                 style={{
                   width: '100%',
                   maxWidth: '500px',
@@ -372,10 +405,10 @@ function App() {
                   border: 'none',
                   backgroundColor: matched ? '#10b981' : '#3b82f6',
                   color: 'white',
-                  cursor: (matched || pointsLocked) ? 'pointer' : 'default',
+                  cursor: (matched || pointsLocked || guessMarker) ? 'pointer' : 'default',
                   boxShadow: '0 10px 20px rgba(0,0,0,0.2)',
                   transition: 'all 0.3s ease',
-                  opacity: (matched || pointsLocked) ? 1 : 0.6
+                  opacity: (matched || pointsLocked || guessMarker) ? 1 : 0.6
                 }}
               >
                 {matched ? "CONTINUER 💌" : "VALIDER MA POSITION 📍"}
@@ -488,8 +521,8 @@ function App() {
       </div>
 
       {/* ── BOTTOM HALF: INTERACTIVE MAP (Agrandie & Remontée) ── */}
-      <div id="game-map" className="relative w-full z-10 rounded-t-[40px] overflow-hidden shadow-[0_-20px_50px_rgba(0,0,0,0.8)] border-t border-white/10 bg-slate-900" style={{ height: '80vh', minHeight: '700px', marginTop: '-40px' }}>
-        <MapContainer center={[46.5, 2.5]} zoom={5} zoomControl={false} scrollWheelZoom={false} touchZoom={false} dragging={!L.Browser.mobile} style={{ width: '100%', height: '100%' }} className="leaf-map-container">
+      <div id="game-map" className="relative w-[95%] lg:w-1/2 mx-auto z-10 rounded-[40px] overflow-hidden shadow-[0_10px_50px_rgba(0,0,0,0.8)] border border-white/10 bg-slate-900 mb-12" style={{ height: '80vh', minHeight: '700px', marginTop: '40px' }}>
+        <MapContainer center={[46.5, 2.5]} zoom={5} scrollWheelZoom={true} touchZoom={true} dragging={true} zoomControl={true} style={{ width: '100%', height: '100%' }} className="leaf-map-container">
           <TileLayer
             attribution='&copy; CARTO'
             url='https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
