@@ -10,7 +10,7 @@ import { GoogleMap, StreetViewPanorama, useJsApiLoader } from '@react-google-map
 // ╚══════════════════════════════════════════════════════════╝
 const SUPABASE_URL = "https://vromnbvyylhtpxgfwhkt.supabase.co"; // ← ton URL
 const SUPABASE_ANON_KEY = "sb_publishable_O__eJlMAsw8-Cgw2_5vmsw_EHfoXjg1"; // ← ta clé anon
-const GOOGLE_MAPS_API_KEY = ""; // ← METS TA CLE STREET VIEW ICI !
+const GOOGLE_MAPS_API_KEY: string = "AIzaSyAmMk8Lr_fiZ32RdrUT_SHsV8ouvDVG-m0"; // ← METS TA CLE STREET VIEW ICI !
 
 const redIcon = L.icon({
   iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
@@ -56,34 +56,7 @@ function MapClickEvents({ onLocationClick, matched, pointsLocked }: { onLocation
   return null;
 }
 
-const StreetViewComponent = ({ lat, lng, matched }: { lat: number, lng: number, matched: boolean }) => {
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: GOOGLE_MAPS_API_KEY
-  });
 
-  if (!isLoaded) return <div className="w-full h-full flex flex-col items-center justify-center bg-[#0f172a] border-0"><div className="spinner mb-3"></div><div className="text-slate-400 text-xs font-bold uppercase tracking-widest">Chargement...</div></div>;
-
-  return (
-    <div className={`w-full h-full transition-opacity duration-1000 ${matched ? 'opacity-30' : 'opacity-100'}`}>
-      <GoogleMap mapContainerStyle={{ width: '100%', height: '100%' }}>
-        <StreetViewPanorama
-          options={{
-            position: { lat, lng },
-            visible: true,
-            addressControl: false, // Cache l'adresse pour ne pas tricher !
-            showRoadLabels: false,
-            zoomControl: true,
-            disableDefaultUI: true, // Cache l'interface
-            clickToGo: true,
-            linksControl: true,
-            panControl: true,
-            enableCloseButton: false,
-          }}
-        />
-      </GoogleMap>
-    </div>
-  );
-};
 
 function App() {
   const [userPos, setUserPos] = useState<{ lat: number, lon: number } | null>(null);
@@ -269,77 +242,118 @@ function App() {
   const user = users[currentIndex];
 
   return (
-    <div className="fixed inset-0 w-full h-[100dvh] flex flex-col grain-bg bg-slate-950 text-slate-50 overscroll-none overflow-hidden">
+    <div className="relative min-h-[100dvh] w-full flex flex-col grain-bg bg-slate-950 text-slate-50 overflow-y-auto">
+      <div id="top-anchor"></div>
 
       {/* ── HEADER (Floating Glass Panel) ── */}
-      <header className="absolute top-0 inset-x-0 z-[100] px-6 py-4 pt-safe flex items-center justify-between glass-panel rounded-b-3xl">
-        <div className="font-serif text-2xl font-black tracking-tight drop-shadow-md flex items-center gap-3">
-          <button onClick={() => setShowProfileMenu(true)} className="relative active:scale-95 transition-transform group shadow-md shrink-0">
-            <div className="absolute inset-0 bg-rose-500 rounded-full blur opacity-20 group-hover:opacity-60 transition"></div>
-            <img src={myProfile.photo} className="w-10 h-10 rounded-full object-cover border-2 border-slate-600 relative z-10 bg-slate-800" alt="Profil" />
-          </button>
-          <div>
-            Geo<span className="text-rose-500">Match</span> <span className="text-xl">💘</span>
+      <header className="fixed top-0 inset-x-0 z-[100] px-6 py-4 pt-safe flex flex-col gap-4 glass-panel rounded-b-3xl">
+        <div className="flex items-center justify-between w-full">
+          <div className="font-serif text-2xl font-black tracking-tight drop-shadow-md flex items-center gap-3">
+            <button onClick={() => setShowProfileMenu(true)} className="relative active:scale-95 transition-transform group shadow-md shrink-0">
+              <div className="absolute inset-0 bg-rose-500 rounded-full blur opacity-20 group-hover:opacity-60 transition"></div>
+              <img src={myProfile.photo} className="w-10 h-10 rounded-full object-cover border-2 border-slate-600 relative z-10 bg-slate-800" alt="Profil" />
+            </button>
+            <div>
+              Geo<span className="text-rose-500">Match</span> <span className="text-xl">💘</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowSidebar(true)}
+              className="relative w-10 h-10 rounded-full bg-slate-900 border border-white/20 flex items-center justify-center hover:bg-slate-800 transition shadow-md active:scale-95"
+            >
+              💬
+              {matchedUsers.length > 0 && <span className="absolute top-0 right-0 w-3 h-3 bg-rose-500 rounded-full border border-slate-900 animate-pulse" />}
+            </button>
+
+            <div className={`text-[10px] font-bold px-3 py-1.5 rounded-full border shadow-md flex items-center gap-1 transition-colors ${timeLeft <= 5 && !matched && !pointsLocked ? 'bg-rose-900/80 border-rose-400/30 text-rose-300 animate-pulse' : 'bg-slate-900/80 border-indigo-400/30 text-indigo-300'}`}>
+              <span className="text-sm">⏳</span> {timeLeft}s
+            </div>
+
+            <div className="text-[10px] font-bold px-3 py-1.5 bg-slate-900/80 rounded-full border border-indigo-400/30 text-indigo-300 shadow-md flex items-center gap-1">
+              <span className="text-sm">🃏</span> x {jokers}
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-3">
 
-          <button
-            onClick={() => setShowSidebar(true)}
-            className="relative w-10 h-10 rounded-full bg-slate-900 border border-white/20 flex items-center justify-center hover:bg-slate-800 transition shadow-md active:scale-95"
+        {/* Anchor Navigation */}
+        <div className="flex justify-center gap-4 pb-2">
+          <button 
+            onClick={() => document.getElementById('top-anchor')?.scrollIntoView({ behavior: 'smooth' })}
+            style={{ zIndex: 10000, pointerEvents: 'auto' }}
+            className="text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 active:scale-95 transition-all text-slate-300"
           >
-            💬
-            {matchedUsers.length > 0 && <span className="absolute top-0 right-0 w-3 h-3 bg-rose-500 rounded-full border border-slate-900 animate-pulse" />}
+            1. Voir le lieu 👁️
           </button>
-
-          <div className={`text-[10px] font-bold px-3 py-1.5 rounded-full border shadow-md flex items-center gap-1 transition-colors ${timeLeft <= 5 && !matched && !pointsLocked ? 'bg-rose-900/80 border-rose-400/30 text-rose-300 animate-pulse' : 'bg-slate-900/80 border-indigo-400/30 text-indigo-300'}`}>
-            <span className="text-sm">⏳</span> {timeLeft}s
-          </div>
-
-          <div className="text-[10px] font-bold px-3 py-1.5 bg-slate-900/80 rounded-full border border-indigo-400/30 text-indigo-300 shadow-md flex items-center gap-1">
-            <span className="text-sm">🃏</span> x {jokers}
-          </div>
-
+          <button 
+            onClick={() => document.getElementById('game-map')?.scrollIntoView({ behavior: 'smooth' })}
+            style={{ zIndex: 10000, pointerEvents: 'auto' }}
+            className="text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 active:scale-95 transition-all text-slate-300"
+          >
+            2. Deviner sur la carte 📍
+          </button>
         </div>
       </header>
 
       {/* ── TOP HALF: PROFILE CARD ── */}
-      <div className="relative w-full h-[50dvh] lg:h-[45dvh] z-20 flex flex-col items-center justify-end px-4 pb-12 pt-24 pointer-events-none">
+      <div className="relative w-full z-20 flex flex-col items-center px-4 pb-0 pt-44 pointer-events-none">
 
         <AnimatePresence mode="popLayout">
           <motion.div
             key={user.nom}
-            initial={{ opacity: 0, scale: 0.9, x: 100, rotate: 5 }}
-            animate={{ opacity: 1, scale: 1, x: 0, rotate: 0 }}
-            exit={{ opacity: 0, scale: 0.9, x: -100, rotate: -5 }}
+            initial={{ opacity: 0, scale: 0.9, y: 30 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: -30 }}
             transition={{ type: "spring", stiffness: 300, damping: 25 }}
-            className="w-full max-w-[400px] h-full relative rounded-[32px] overflow-hidden glass-panel pointer-events-auto border border-white/10 shadow-2xl"
-            style={{ maxHeight: '420px', backgroundColor: '#0f172a' }}
+            className="w-full max-w-[1000px] pointer-events-auto"
           >
-            {/* GeoGuessr Street View (si la clé API est ajoutée) ou photo floutée par défaut */}
-            {GOOGLE_MAPS_API_KEY && GOOGLE_MAPS_API_KEY !== "" ? (
-              <StreetViewComponent lat={user.latitude} lng={user.longitude} matched={matched} />
-            ) : (
-              <img
-                src={user.photo_url}
-                alt={user.nom}
-                className={`w-full h-full object-cover transition-all duration-1000 ease-in-out ${matched ? 'blur-0 scale-100' : 'blur-xl scale-110'}`}
-              />
-            )}
-
-            {/* Soft dark gradient at bottom so text is readable */}
-            <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/40 to-transparent pointer-events-none" />
-
-            {/* User Info (Revealed on match) */}
-            <div className="absolute bottom-0 inset-x-0 p-6 pt-12">
-              <h2 className={`font-serif text-[2.5rem] font-bold leading-none mb-2 drop-shadow-lg transition-all duration-[800ms] ${matched ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'}`}>
-                {user.nom}
-              </h2>
-              <div className="flex items-start gap-2 mt-2 w-full">
-                <p className="indice-text text-sm md:text-base font-medium leading-snug drop-shadow-md w-full">
-                  <span className="mr-2">💡</span>"{user.indice}"
-                </p>
+            {/* Split Screen Layout */}
+            <div style={{ display: 'flex', gap: '20px', alignItems: 'start', marginTop: '20px', width: '100%' }}>
+              
+              {/* COLONNE GAUCHE : Street View (70% de largeur) */}
+              <div style={{ flex: 7, height: '500px', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 4px 15px rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <iframe
+                  width="100%"
+                  height="100%"
+                  style={{ border: 0 }}
+                  loading="lazy"
+                  src={`https://www.google.com/maps/embed/v1/streetview?key=${GOOGLE_MAPS_API_KEY}&location=${user.latitude},${user.longitude}`}
+                ></iframe>
               </div>
+
+              {/* COLONNE DROITE : Infos de la personne (30% de largeur) */}
+              <div style={{ flex: 3, backgroundColor: '#1f2937', padding: '20px', borderRadius: '15px', color: 'white', minHeight: '500px', boxShadow: '0 4px 15px rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <h2 style={{ fontSize: '24px', marginBottom: '10px', color: '#ec4899', fontWeight: 'bold' }}>{user.nom}</h2>
+                <p style={{ fontStyle: 'italic', color: '#9ca3af', marginBottom: '20px' }}>"{user.bio || "Prêt(e) à l'aventure !"}"</p>
+                
+                <div style={{ borderTop: '1px solid #374151', paddingTop: '15px' }}>
+                  <p><strong>📍 Indice :</strong> {user.indice}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Bouton "CONTINUER 💌" centré sur une ligne avec marges aérées */}
+            <div style={{ width: '100%', display: 'flex', justifyContent: 'center', marginTop: '40px', marginBottom: '40px' }}>
+              <button 
+                onClick={matched ? nextUser : undefined}
+                style={{
+                  width: '100%',
+                  maxWidth: '500px',
+                  padding: '18px',
+                  fontSize: '20px',
+                  fontWeight: 'bold',
+                  borderRadius: '50px',
+                  border: 'none',
+                  backgroundColor: matched ? '#10b981' : '#3b82f6',
+                  color: 'white',
+                  cursor: (matched || pointsLocked) ? 'pointer' : 'default',
+                  boxShadow: '0 10px 20px rgba(0,0,0,0.2)',
+                  transition: 'all 0.3s ease',
+                  opacity: (matched || pointsLocked) ? 1 : 0.6
+                }}
+              >
+                {matched ? "CONTINUER 💌" : "VALIDER MA POSITION 📍"}
+              </button>
             </div>
           </motion.div>
         </AnimatePresence>
@@ -349,15 +363,7 @@ function App() {
       {/* ── ACTION DIVIDER AREA (Floating Pills between map and card) ── */}
       <div className="absolute top-[50dvh] lg:top-[45dvh] inset-x-0 z-40 flex justify-center -translate-y-[60%] pointer-events-none">
         <AnimatePresence mode="wait">
-          {!matched && !matchStatus && (
-            <motion.div
-              key="hint"
-              initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }}
-              className="glass-panel bg-slate-800/80 px-6 py-3 rounded-full text-xs font-bold uppercase tracking-widest text-slate-300 pointer-events-auto shadow-xl"
-            >
-              👆 Touche la carte pour deviner
-            </motion.div>
-          )}
+          {!matched && !matchStatus && null}
 
           {!matched && matchStatus && (
             <motion.div
@@ -432,9 +438,9 @@ function App() {
         </AnimatePresence>
       </div>
 
-      {/* ── BOTTOM HALF: INTERACTIVE MAP ── */}
-      <div className="relative flex-grow w-full z-10 rounded-t-[40px] overflow-hidden shadow-[0_-20px_50px_rgba(0,0,0,0.6)] border-t border-white/10 bg-slate-900">
-        <MapContainer center={[46.5, 2.5]} zoom={5} zoomControl={false} style={{ width: '100%', height: '100%' }} className="leaf-map-container">
+      {/* ── BOTTOM HALF: INTERACTIVE MAP (Agrandie & Remontée) ── */}
+      <div id="game-map" className="relative w-full z-10 rounded-t-[40px] overflow-hidden shadow-[0_-20px_50px_rgba(0,0,0,0.8)] border-t border-white/10 bg-slate-900" style={{ height: '80vh', minHeight: '700px', marginTop: '-40px' }}>
+        <MapContainer center={[46.5, 2.5]} zoom={5} zoomControl={false} scrollWheelZoom={false} touchZoom={false} dragging={!L.Browser.mobile} style={{ width: '100%', height: '100%' }} className="leaf-map-container">
           <TileLayer
             attribution='&copy; CARTO'
             url='https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
@@ -734,14 +740,23 @@ function App() {
         )}
       </AnimatePresence>
 
-      {/* ── FLOATING SKIP BUTTON (Bottom Right) ── */}
+      {/* ── FLOATING CONTROLS (Bottom Right) ── */}
       {!showProfileSheet && !showSidebar && (
-        <button
-          onClick={nextUser}
-          className="fixed bottom-6 right-6 z-[500] bg-slate-900/90 backdrop-blur-md border border-white/20 text-slate-200 text-xs font-bold px-5 py-3.5 rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.5)] hover:bg-slate-800 active:scale-95 transition-transform flex items-center gap-2"
-        >
-          Profil Suivant ⏭️
-        </button>
+        <div className="fixed bottom-6 right-6 z-[500] flex flex-col gap-3 items-end">
+          <button
+            onClick={nextUser}
+            style={{ 
+              zIndex: 10000,
+              position: 'fixed',
+              bottom: '24px',
+              right: '24px',
+              pointerEvents: 'auto'
+            }}
+            className="bg-rose-500/90 backdrop-blur-md border border-white/20 text-white text-xs font-bold px-5 py-3.5 rounded-full shadow-[0_10px_30px_rgba(244,63,94,0.3)] hover:bg-rose-400 active:scale-95 transition-transform flex items-center gap-2"
+          >
+            Profil Suivant ⏭️
+          </button>
+        </div>
       )}
 
     </div>
