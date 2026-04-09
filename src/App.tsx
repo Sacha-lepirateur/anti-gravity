@@ -3,7 +3,6 @@ import { MapContainer, TileLayer, Marker, Popup, useMapEvents, Polyline } from '
 import L from 'leaflet'
 import { motion, AnimatePresence } from 'framer-motion'
 import confetti from 'canvas-confetti'
-import { GoogleMap, StreetViewPanorama, useJsApiLoader } from '@react-google-maps/api'
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║   🔧 CONFIGURE ICI — METS TES CLES API (DB + GOOGLE)    ║
@@ -44,6 +43,14 @@ type Utilisateur = {
   age?: number;
 };
 
+type Message = {
+  id: string;
+  sender: string;
+  receiver: string;
+  content: string;
+  timestamp: string;
+};
+
 // Component that captures map clicks securely based on game state
 function MapClickEvents({ onLocationClick, matched, pointsLocked }: { onLocationClick: (lat: number, lng: number) => void, matched: boolean, pointsLocked: boolean }) {
   useMapEvents({
@@ -55,35 +62,6 @@ function MapClickEvents({ onLocationClick, matched, pointsLocked }: { onLocation
   });
   return null;
 }
-
-const StreetViewComponent = ({ lat, lng, matched }: { lat: number, lng: number, matched: boolean }) => {
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: GOOGLE_MAPS_API_KEY
-  });
-
-  if (!isLoaded) return <div className="w-full h-full flex flex-col items-center justify-center bg-[#1f2937] border-0"><div className="spinner mb-3"></div><div className="text-slate-400 text-xs font-bold uppercase tracking-widest">Chargement...</div></div>;
-
-  return (
-    <div className="w-full h-full" style={{ pointerEvents: matched ? 'none' : 'auto' }}>
-      <GoogleMap mapContainerStyle={{ width: '100%', height: '100%' }}>
-        <StreetViewPanorama
-          options={{
-            position: { lat, lng },
-            visible: true,
-            addressControl: false, // Cache l'adresse et "Sans titre" pour ne pas tricher
-            showRoadLabels: false,
-            zoomControl: true,
-            disableDefaultUI: true, // Cache toutes les UI superflues de Google
-            clickToGo: true,
-            linksControl: true,
-            panControl: true,
-            enableCloseButton: false,
-          }}
-        />
-      </GoogleMap>
-    </div>
-  );
-};
 
 function App() {
   const [userPos, setUserPos] = useState<{ lat: number, lon: number } | null>(null);
@@ -107,7 +85,18 @@ function App() {
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [matched, setMatched] = useState(false);
+  const [showMatchOverlay, setShowMatchOverlay] = useState(false);
   const [matchStatus, setMatchStatus] = useState<'MATCH' | 'SUPER_LIKE' | 'LIKE' | 'GHOST' | 'TIME_OUT' | null>(null);
+
+  useEffect(() => {
+    if (matched && matchStatus === 'MATCH') {
+      setShowMatchOverlay(true);
+      const timer = setTimeout(() => setShowMatchOverlay(false), 2000);
+      return () => clearTimeout(timer);
+    } else {
+      setShowMatchOverlay(false);
+    }
+  }, [matched, matchStatus]);
 
   const [guessMarker, setGuessMarker] = useState<{ lat: number; lng: number } | null>(null);
   const [distance, setDistance] = useState<number | null>(null);
@@ -155,6 +144,8 @@ function App() {
   const [matchedUsers, setMatchedUsers] = useState<Utilisateur[]>([]);
   const [showSidebar, setShowSidebar] = useState(false);
   const [activeChat, setActiveChat] = useState<Utilisateur | null>(null);
+  const [messages, setMessages] = useState<{[key: string]: Message[]}>({});
+  const [newMessage, setNewMessage] = useState('');
 
   // My Profile States
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -197,6 +188,64 @@ function App() {
 
     fetchUtilisateurs();
   }, []);
+
+  // Supabase helper function
+  const supabaseFetch = async (path: string, options?: RequestInit) => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json',
+        ...options?.headers
+      },
+      ...options
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Supabase ${res.status}: ${text}`);
+    }
+
+    return res.json();
+  };
+
+  // Message functions
+  const fetchMessages = async (otherUser: string) => {
+    try {
+      const chatKey = [myProfile.pseudo, otherUser].sort().join('-');
+      const data = await supabaseFetch(`messages?or=(and(sender.eq.${myProfile.pseudo},receiver.eq.${otherUser}),and(sender.eq.${otherUser},receiver.eq.${myProfile.pseudo}))&order=timestamp.asc`);
+      setMessages(prev => ({ ...prev, [chatKey]: data }));
+    } catch (err) {
+      console.log('Error fetching messages:', err);
+    }
+  };
+
+  const sendMessage = async (receiver: string, content: string) => {
+    if (!content.trim()) return;
+
+    try {
+      const messageData = {
+        sender: myProfile.pseudo,
+        receiver,
+        content: content.trim(),
+        timestamp: new Date().toISOString()
+      };
+
+      await supabaseFetch('messages', {
+        method: 'POST',
+        body: JSON.stringify(messageData)
+      });
+
+      const chatKey = [myProfile.pseudo, receiver].sort().join('-');
+      setMessages(prev => ({
+        ...prev,
+        [chatKey]: [...(prev[chatKey] || []), { ...messageData, id: Date.now().toString() }]
+      }));
+      setNewMessage('');
+    } catch (err) {
+      console.log('Error sending message:', err);
+    }
+  };
 
   const handleLocationClick = (lat: number, lng: number) => {
     if (users.length === 0 || matched || pointsLocked) return;
@@ -591,7 +640,7 @@ function App() {
                 ) : (
                   <ul className="p-3 space-y-2">
                     {matchedUsers.map((mu, i) => (
-                      <li key={i} onClick={() => setActiveChat(mu)} className="group flex items-center gap-4 p-3 rounded-2xl hover:bg-slate-800 cursor-pointer transition-colors border border-transparent hover:border-white/5">
+                      <li key={i} onClick={() => { setActiveChat(mu); fetchMessages(mu.nom); }} className="group flex items-center gap-4 p-3 rounded-2xl hover:bg-slate-800 cursor-pointer transition-colors border border-transparent hover:border-white/5">
                         <div className="relative">
                           <img src={mu.photo_url} className="w-14 h-14 rounded-full object-cover shadow-md" />
                           <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-slate-900 rounded-full" />
@@ -612,17 +661,44 @@ function App() {
                     <span className="font-bold text-white text-sm">{activeChat.nom}</span>
                   </div>
                   <div className="flex-grow p-4 overflow-y-auto space-y-4">
-                    {/* Simulation message d'accueil */}
+                    {/* Match notification */}
                     <div className="bg-rose-500/20 text-rose-200 text-[10px] uppercase font-bold text-center tracking-widest py-1 px-3 rounded-full mx-auto w-max mb-4">
                       Nouveau Match (Moins de 30km) !
                     </div>
-                    <div className="bg-slate-800 border border-white/5 p-4 rounded-2xl rounded-tl-sm text-sm text-slate-200 shadow-lg w-[85%] relative">
-                      Salut ! Trop fort, tu m'as trouvé en plein dans le mille ! 😊
-                    </div>
+                    
+                    {/* Welcome message */}
+                    {(!messages[[myProfile.pseudo, activeChat.nom].sort().join('-')] || messages[[myProfile.pseudo, activeChat.nom].sort().join('-')].length === 0) && (
+                      <div className="bg-slate-800 border border-white/5 p-4 rounded-2xl rounded-tl-sm text-sm text-slate-200 shadow-lg w-[85%] relative">
+                        Salut ! Trop fort, tu m'as trouvé en plein dans le mille ! 😊
+                      </div>
+                    )}
+
+                    {/* Real messages */}
+                    {messages[[myProfile.pseudo, activeChat.nom].sort().join('-')]?.map((msg, i) => (
+                      <div key={i} className={`p-4 rounded-2xl text-sm shadow-lg w-[85%] relative ${
+                        msg.sender === myProfile.pseudo 
+                          ? 'bg-rose-500/20 text-rose-100 ml-auto rounded-br-sm' 
+                          : 'bg-slate-800 border border-white/5 text-slate-200 rounded-tl-sm'
+                      }`}>
+                        {msg.content}
+                      </div>
+                    ))}
                   </div>
                   <div className="p-4 bg-slate-900 border-t border-white/5 flex gap-2">
-                    <input type="text" placeholder="Écrire un message..." className="flex-grow bg-slate-950 border border-white/10 rounded-full px-5 py-2.5 text-sm text-white focus:outline-none focus:border-rose-500" />
-                    <button className="w-10 h-10 shrink-0 rounded-full bg-rose-500 flex items-center justify-center shadow-lg active:scale-95 transition-transform text-white">💌</button>
+                    <input 
+                      type="text" 
+                      placeholder="Écrire un message..." 
+                      value={newMessage}
+                      onChange={(e) => setNewMessage(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && sendMessage(activeChat.nom, newMessage)}
+                      className="flex-grow bg-slate-950 border border-white/10 rounded-full px-5 py-2.5 text-sm text-white focus:outline-none focus:border-rose-500" 
+                    />
+                    <button 
+                      onClick={() => sendMessage(activeChat.nom, newMessage)}
+                      className="w-10 h-10 shrink-0 rounded-full bg-rose-500 flex items-center justify-center shadow-lg active:scale-95 transition-transform text-white"
+                    >
+                      💌
+                    </button>
                   </div>
                 </div>
               )}
@@ -807,7 +883,7 @@ function App() {
 
       {/* ── THE MATCH OVERLAY (Only visible if sheet is NOT open) ── */}
       <AnimatePresence>
-        {matched && !showProfileSheet && (
+        {showMatchOverlay && (
           <motion.div
             initial={{ scale: 0, rotate: -20, opacity: 0 }}
             animate={{ scale: 1.1, rotate: 0, opacity: 1 }}
