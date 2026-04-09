@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents, Polyline } from 'react-leaflet'
 import L from 'leaflet'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -117,9 +117,27 @@ function App() {
   const [jokers, setJokers] = useState(3);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [timeLeft, setTimeLeft] = useState(30);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    if (loading || users.length === 0 || matched || pointsLocked) return;
+    if (!audioRef.current) {
+      audioRef.current = new Audio('/timer-music.mp3');
+      audioRef.current.loop = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (loading || users.length === 0 || matched || pointsLocked) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      return;
+    }
+
+    if (timeLeft === 30 && audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().catch(e => console.log('Autoplay bloqué par le navigateur', e));
+    }
 
     if (timeLeft > 0) {
       const timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
@@ -127,6 +145,9 @@ function App() {
     } else {
       setMatchStatus('TIME_OUT');
       setPointsLocked(true);
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
     }
   }, [timeLeft, loading, users, matched, pointsLocked]);
 
@@ -179,9 +200,14 @@ function App() {
 
   const handleLocationClick = (lat: number, lng: number) => {
     if (users.length === 0 || matched || pointsLocked) return;
+    setGuessMarker({ lat, lng });
+  };
+
+  const handleValidateGuess = () => {
+    if (!guessMarker || users.length === 0 || matched || pointsLocked) return;
 
     const user = users[currentIndex];
-    setGuessMarker({ lat, lng });
+    const { lat, lng } = guessMarker;
 
     const dist = haversine(lat, lng, user.latitude, user.longitude);
     const distKm = Math.round(dist);
@@ -349,13 +375,28 @@ function App() {
       {/* ── ACTION DIVIDER AREA (Floating Pills between map and card) ── */}
       <div className="absolute top-[50dvh] lg:top-[45dvh] inset-x-0 z-40 flex justify-center -translate-y-[60%] pointer-events-none">
         <AnimatePresence mode="wait">
-          {!matched && !matchStatus && (
+          {!matched && !matchStatus && !guessMarker && (
             <motion.div
               key="hint"
               initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }}
               className="glass-panel bg-slate-800/80 px-6 py-3 rounded-full text-xs font-bold uppercase tracking-widest text-slate-300 pointer-events-auto shadow-xl"
             >
               👆 Touche la carte pour deviner
+            </motion.div>
+          )}
+
+          {!matched && !matchStatus && guessMarker && (
+            <motion.div
+              key="validate"
+              initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }}
+              className="pointer-events-auto"
+            >
+              <button
+                onClick={handleValidateGuess}
+                className="bg-indigo-500 hover:bg-indigo-400 text-white px-8 py-4 rounded-full text-sm font-bold uppercase shadow-[0_5px_20px_rgba(99,102,241,0.5)] border border-indigo-400 flex items-center gap-2 active:scale-95 transition-transform"
+              >
+                Valider ce point 📍
+              </button>
             </motion.div>
           )}
 
