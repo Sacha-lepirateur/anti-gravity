@@ -107,7 +107,18 @@ function App() {
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [matched, setMatched] = useState(false);
+  const [showMatchOverlay, setShowMatchOverlay] = useState(false);
   const [matchStatus, setMatchStatus] = useState<'MATCH' | 'SUPER_LIKE' | 'LIKE' | 'GHOST' | 'TIME_OUT' | null>(null);
+
+  useEffect(() => {
+    if (matched && matchStatus === 'MATCH') {
+      setShowMatchOverlay(true);
+      const timer = setTimeout(() => setShowMatchOverlay(false), 2000);
+      return () => clearTimeout(timer);
+    } else {
+      setShowMatchOverlay(false);
+    }
+  }, [matched, matchStatus]);
 
   const [guessMarker, setGuessMarker] = useState<{ lat: number; lng: number } | null>(null);
   const [distance, setDistance] = useState<number | null>(null);
@@ -807,7 +818,7 @@ function App() {
 
       {/* ── THE MATCH OVERLAY (Only visible if sheet is NOT open) ── */}
       <AnimatePresence>
-        {matched && !showProfileSheet && (
+        {showMatchOverlay && (
           <motion.div
             initial={{ scale: 0, rotate: -20, opacity: 0 }}
             animate={{ scale: 1.1, rotate: 0, opacity: 1 }}
