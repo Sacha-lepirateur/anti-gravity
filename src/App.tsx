@@ -12,6 +12,8 @@ const SUPABASE_URL = "https://vromnbvyylhtpxgfwhkt.supabase.co"; // ← ton URL
 const SUPABASE_ANON_KEY = "sb_publishable_O__eJlMAsw8-Cgw2_5vmsw_EHfoXjg1"; // ← ta clé anon
 const GOOGLE_MAPS_API_KEY: string = "AIzaSyAmMk8Lr_fiZ32RdrUT_SHsV8ouvDVG-m0"; // ← METS TA CLE STREET VIEW ICI !
 
+type ChatMessage = { role: 'user' | 'model'; text: string };
+
 const redIcon = L.icon({
   iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
@@ -110,6 +112,69 @@ function App() {
   const [showMatchOverlay, setShowMatchOverlay] = useState(false);
   const [matchStatus, setMatchStatus] = useState<'MATCH' | 'SUPER_LIKE' | 'LIKE' | 'GHOST' | 'TIME_OUT' | null>(null);
 
+  // IA Chat States
+  const [chats, setChats] = useState<Record<string, ChatMessage[]>>({});
+  const [isTyping, setIsTyping] = useState(false);
+  const [currentMessageInput, setCurrentMessageInput] = useState("");
+
+  const handleSendMessage = async () => {
+    if (!currentMessageInput.trim() || !activeChat) return;
+
+    if (!myProfile.apiKey) {
+      alert("🚨 Tu n'as pas configuré ta clé Claude ! Ajoute-la dans les Paramètres de ton profil.");
+      return;
+    }
+
+    const userText = currentMessageInput.trim();
+    setCurrentMessageInput("");
+    setIsTyping(true);
+
+    const historyForApi = chats[activeChat.nom] || [{ role: 'model', text: "Salut ! Trop fort, tu m'as trouvé en plein dans le mille ! 😊" }];
+
+    setChats(prev => ({ ...prev, [activeChat.nom]: [...historyForApi, { role: 'user', text: userText }] }));
+
+    try {
+      const url = `https://api.anthropic.com/v1/messages`;
+      const promptSystem = `Tu es ${activeChat.nom}, ${activeChat.age || 24} ans. Ta bio est: "${activeChat.bio || "Prêt(e) à découvrir de nouveaux lieux!"}". Tu es sur une application de rencontre appelée GeoMatch. La personne vient de deviner ta localisation exacte grâce à l'indice "${activeChat.indice}". Garde un ton naturel, flirtant si approprié, et fais des phrases courtes comme dans un vrai chat. Pas de hashtags. Le tout premier message que tu avais dit ("Salut ! Trop fort, tu m'as trouvé en plein dans le mille ! 😊") a déjà été envoyé, ceci est la suite de la conversation.`;
+
+      const messagesForClaude = historyForApi.map(msg => ({ role: msg.role === 'model' ? 'assistant' : 'user', content: msg.text }));
+      messagesForClaude.push({ role: 'user', content: userText });
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 
+          'content-type': 'application/json',
+          'x-api-key': myProfile.apiKey || "",
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: 'claude-3-haiku-20240307',
+          max_tokens: 150,
+          system: promptSystem,
+          messages: messagesForClaude
+        })
+      });
+
+      if (!response.ok) throw new Error("API Error");
+
+      const data = await response.json();
+      const modelReply = data.content?.[0]?.text || "Oops, problème de connexion !";
+
+      setChats(prev => ({
+        ...prev,
+        [activeChat.nom]: [...(prev[activeChat.nom] || []), { role: 'model', text: modelReply }]
+      }));
+    } catch (err) {
+      setChats(prev => ({
+        ...prev,
+        [activeChat.nom]: [...(prev[activeChat.nom] || []), { role: 'model', text: "*(Message non envoyé, vérifie ta clé Claude dans App.tsx)*" }]
+      }));
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
   useEffect(() => {
     if (matched && matchStatus === 'MATCH') {
       setShowMatchOverlay(true);
@@ -130,6 +195,8 @@ function App() {
   const [timeLeft, setTimeLeft] = useState(30);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  const [gameStarted, setGameStarted] = useState(false);
+
   useEffect(() => {
     if (!audioRef.current) {
       audioRef.current = new Audio('/timer-music.mp3');
@@ -138,7 +205,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (loading || users.length === 0 || matched || pointsLocked) {
+    if (loading || users.length === 0 || matched || pointsLocked || !gameStarted) {
       if (audioRef.current) {
         audioRef.current.pause();
       }
@@ -160,7 +227,7 @@ function App() {
         audioRef.current.pause();
       }
     }
-  }, [timeLeft, loading, users, matched, pointsLocked]);
+  }, [timeLeft, loading, users, matched, pointsLocked, gameStarted]);
 
   // Match / Messages States
   const [matchedUsers, setMatchedUsers] = useState<Utilisateur[]>([]);
@@ -170,9 +237,9 @@ function App() {
   // My Profile States
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [myProfile, setMyProfile] = useState<{ pseudo: string, photo: string, bio: string, streak: number, superLikes: number }>(() => {
+  const [myProfile, setMyProfile] = useState<{ pseudo: string, photo: string, bio: string, streak: number, superLikes: number, apiKey?: string }>(() => {
     const saved = localStorage.getItem('my_geomatch_profile');
-    return saved ? JSON.parse(saved) : { pseudo: 'Aventurier', photo: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Aventurier', bio: "Prêt(e) à découvrir de nouveaux lieux ! 🌍", streak: 0, superLikes: 0 };
+    return saved ? JSON.parse(saved) : { pseudo: 'Aventurier', photo: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Aventurier', bio: "Prêt(e) à découvrir de nouveaux lieux ! 🌍", streak: 0, superLikes: 0, apiKey: "" };
   });
 
   useEffect(() => {
@@ -305,8 +372,138 @@ function App() {
 
   const user = users[currentIndex];
 
+  const renderProfileContent = () => (
+    <div className="flex-grow overflow-y-auto relative w-full h-full pb-4">
+      {isEditingProfile ? (
+        <div className="flex flex-col gap-4 text-left w-full max-w-md mx-auto">
+          <div className="text-center font-bold text-indigo-400 mb-2">Modifier mon profil & Réglages</div>
+          <div>
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">Pseudo</label>
+            <input
+              type="text"
+              value={myProfile.pseudo}
+              onChange={(e) => setMyProfile({ ...myProfile, pseudo: e.target.value })}
+              className="w-full mt-1.5 bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">Photo URL</label>
+            <input
+              type="text"
+              value={myProfile.photo}
+              onChange={(e) => setMyProfile({ ...myProfile, photo: e.target.value })}
+              className="w-full mt-1.5 bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
+            />
+            <button onClick={() => setMyProfile({ ...myProfile, photo: `https://api.dicebear.com/7.x/avataaars/svg?seed=${Math.random()}` })} className="text-[10px] text-indigo-400 mt-2 hover:text-indigo-300 font-medium px-1 underline underline-offset-2">🔄 Générer avatar aléatoire</button>
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">Ma Bio</label>
+            <textarea
+              value={myProfile.bio}
+              onChange={(e) => setMyProfile({ ...myProfile, bio: e.target.value })}
+              className="w-full mt-1.5 bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors resize-none h-20"
+            />
+          </div>
+          <div className="pt-3 border-t border-white/10 mt-2">
+            <label className="text-[10px] font-bold text-rose-400 uppercase tracking-widest pl-1 flex items-center gap-1">🔑 Clé API Claude-3</label>
+            <input
+              type="password"
+              placeholder="sk-ant-api03-..."
+              value={myProfile.apiKey || ""}
+              onChange={(e) => setMyProfile({ ...myProfile, apiKey: e.target.value })}
+              className="w-full mt-1.5 bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-rose-500 transition-colors"
+            />
+            <p className="text-[10px] text-slate-500 mt-2 pl-1 leading-relaxed">Cette clé est sauvegardée localement dans ton navigateur et permet à l'IA des prospects de te répondre !</p>
+          </div>
+          <button onClick={() => setIsEditingProfile(false)} className="mt-4 w-full bg-indigo-500 hover:bg-indigo-400 text-white font-bold py-3.5 rounded-full shadow-[0_5px_20px_rgba(99,102,241,0.3)] active:scale-95 transition-transform flex items-center justify-center gap-2">
+            Enregistrer ✔️
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center text-center mt-2 w-full max-w-md mx-auto">
+          <div className="relative group">
+            <img src={myProfile.photo} alt="Mon Profil" className="w-32 h-32 bg-slate-800 rounded-full object-cover border-4 border-slate-800 shadow-xl" />
+            <button onClick={() => setIsEditingProfile(true)} className="absolute bottom-0 right-0 w-10 h-10 bg-indigo-500 rounded-full border-4 border-slate-900 flex items-center justify-center text-white text-md shadow-lg hover:bg-indigo-400 hover:scale-105 active:scale-95 transition-all">
+              ⚙️
+            </button>
+          </div>
+          <h3 className="mt-5 text-3xl font-serif font-bold text-white drop-shadow-md">{myProfile.pseudo}</h3>
+          
+          {myProfile.apiKey ? (
+             <div className="mt-2 text-[10px] font-mono text-green-400 bg-green-400/10 px-3 py-1 rounded-full border border-green-400/20">🟢 API Claude Connectée</div>
+          ) : (
+             <div className="mt-2 text-[10px] font-mono text-rose-400 bg-rose-400/10 px-3 py-1 rounded-full border border-rose-400/20 flex flex-col gap-1 items-center">
+               <span>🔴 API Claude Manquante</span>
+               <button onClick={() => setIsEditingProfile(true)} className="underline cursor-pointer">Ajouter la clé</button>
+             </div>
+          )}
+
+          <div className="bg-slate-900/80 border border-white/5 rounded-3xl p-5 mt-6 w-full shadow-inner relative text-left">
+            <span className="absolute -top-3 left-6 bg-slate-900 px-3 text-[10px] font-black text-rose-400 tracking-widest rounded-full border border-white/5 py-1">MA BIO</span>
+            <p className="text-slate-300 text-sm leading-relaxed mt-1 font-medium whitespace-pre-wrap">{myProfile.bio}</p>
+          </div>
+
+          <div className="w-full grid grid-cols-2 gap-4 mt-5">
+            <div className="bg-slate-900/80 rounded-3xl p-4 flex flex-col items-center justify-center border border-white/5 shadow-md relative overflow-hidden group">
+              <div className="absolute inset-0 bg-gradient-to-t from-orange-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              <span className="text-2xl mb-1 opacity-80 relative z-10 group-hover:scale-110 transition-transform">🔥</span>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider text-center relative z-10">Série</span>
+              <span className="font-mono text-xl font-bold text-white relative z-10">{myProfile.streak || 0}</span>
+            </div>
+            <div className="bg-slate-900/80 rounded-3xl p-4 flex flex-col items-center justify-center border border-white/5 shadow-md relative overflow-hidden group">
+              <div className="absolute inset-0 bg-gradient-to-t from-yellow-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              <span className="text-2xl mb-1 opacity-80 relative z-10 group-hover:scale-110 transition-transform">⭐</span>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider text-center relative z-10">Super Likes</span>
+              <span className="font-mono text-xl font-bold text-white relative z-10">{myProfile.superLikes || 0}</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="relative min-h-[100dvh] w-full flex flex-col grain-bg bg-slate-950 text-slate-50 overflow-y-auto">
+      <AnimatePresence>
+        {!gameStarted && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, scale: 1.05, filter: "blur(10px)" }}
+            transition={{ duration: 0.5 }}
+            className="fixed inset-0 z-[20000] bg-slate-950/80 backdrop-blur-3xl overflow-y-auto pointer-events-auto flex items-center justify-center p-4 md:p-8"
+          >
+            <div className="w-full max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 items-center lg:h-[700px]">
+              {/* Colonne Gauche: Pitch */}
+              <div className="text-center lg:text-left flex flex-col justify-center p-6 h-full">
+                <h1 className="text-6xl md:text-8xl font-black font-serif text-white mb-6 drop-shadow-2xl tracking-tighter">Geo<span className="text-rose-500">Match</span> <span className="text-4xl md:text-6xl">💘</span></h1>
+                <div className="w-20 h-2 bg-rose-500 rounded-full mb-8 mx-auto lg:mx-0 shadow-[0_0_20px_rgba(244,63,94,0.5)]" />
+                <p className="text-slate-300 text-xl leading-relaxed font-medium mb-10 max-w-lg mx-auto lg:mx-0">
+                  Séduisez le monde entier... Si vous parvenez à les retrouver d'abord.<br/><br/>
+                  Vous avez <strong className="text-rose-400">30 secondes</strong> pour deviner leur position exacte ! Mettez votre clé API depuis les paramètres pour pouvoir parler aux profils qui ont matché.
+                </p>
+                
+                <button 
+                  onClick={() => setGameStarted(true)}
+                  className="bg-rose-500 hover:bg-rose-400 text-white font-black px-12 py-6 rounded-[2rem] text-2xl shadow-[0_15px_50px_rgba(244,63,94,0.4)] active:scale-95 transition-all w-full md:w-max mx-auto lg:mx-0 uppercase tracking-widest border border-rose-400/50"
+                  style={{ pointerEvents: 'auto' }}
+                >
+                  START MATCHING 🚀
+                </button>
+              </div>
+
+              {/* Colonne Droite: Profil et Paramètres */}
+              <div className="bg-slate-900 border border-white/10 rounded-[3rem] p-8 md:p-10 shadow-[0_30px_100px_rgba(0,0,0,0.8)] relative overflow-hidden h-full flex flex-col pointer-events-auto">
+                <div className="absolute top-0 right-0 p-6 pointer-events-none opacity-20">
+                  <span className="text-8xl drop-shadow-lg">⚙️</span>
+                </div>
+                {renderProfileContent()}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div id="top-anchor"></div>
 
       {/* ── HEADER (Floating Glass Panel) ── */}
@@ -342,14 +539,14 @@ function App() {
 
         {/* Anchor Navigation */}
         <div className="flex justify-center gap-4 pb-2">
-          <button 
+          <button
             onClick={() => document.getElementById('top-anchor')?.scrollIntoView({ behavior: 'smooth' })}
             style={{ zIndex: 10000, pointerEvents: 'auto' }}
             className="text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 active:scale-95 transition-all text-slate-300"
           >
             1. Voir le lieu 👁️
           </button>
-          <button 
+          <button
             onClick={() => document.getElementById('game-map')?.scrollIntoView({ behavior: 'smooth' })}
             style={{ zIndex: 10000, pointerEvents: 'auto' }}
             className="text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 active:scale-95 transition-all text-slate-300"
@@ -373,7 +570,7 @@ function App() {
           >
             {/* Split Screen Layout */}
             <div style={{ display: 'flex', gap: '20px', alignItems: 'start', marginTop: '20px', width: '100%' }}>
-              
+
               {/* COLONNE GAUCHE : Street View (70% de largeur) */}
               <div style={{ flex: 7, height: '500px', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 4px 15px rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', position: 'relative' }}>
                 <iframe
@@ -383,7 +580,7 @@ function App() {
                   loading="lazy"
                   src={`https://www.google.com/maps/embed/v1/streetview?key=${GOOGLE_MAPS_API_KEY}&location=${user.latitude},${user.longitude}`}
                 ></iframe>
-                
+
                 {/* Panneau venant cacher le bandeau d'information (carré rouge) de Google Maps Embed */}
                 <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '90px', background: 'linear-gradient(180deg, #111827 0%, rgba(17,24,39,0.8) 70%, transparent 100%)', pointerEvents: 'none', zIndex: 10 }} />
                 <div style={{ position: 'absolute', top: '10px', left: '-1px', width: '380px', height: '65px', display: 'flex', alignItems: 'center', background: '#0f172a', borderRadius: '0 8px 8px 0', border: '1px solid rgba(255,255,255,0.1)', borderLeft: 'none', color: 'white', fontWeight: 'bold', fontSize: '18px', zIndex: 11, padding: '0 20px', boxShadow: '4px 4px 15px rgba(0,0,0,0.5)', pointerEvents: 'none' }}>
@@ -395,7 +592,7 @@ function App() {
               <div style={{ flex: 3, backgroundColor: '#1f2937', padding: '20px', borderRadius: '15px', color: 'white', minHeight: '500px', boxShadow: '0 4px 15px rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)' }}>
                 <h2 style={{ fontSize: '24px', marginBottom: '10px', color: '#ec4899', fontWeight: 'bold' }}>{user.nom}</h2>
                 <p style={{ fontStyle: 'italic', color: '#9ca3af', marginBottom: '20px' }}>"{user.bio || "Prêt(e) à l'aventure !"}"</p>
-                
+
                 <div style={{ borderTop: '1px solid #374151', paddingTop: '15px' }}>
                   <p><strong>📍 Indice :</strong> {user.indice}</p>
                 </div>
@@ -404,7 +601,7 @@ function App() {
 
             {/* Bouton "CONTINUER 💌" centré sur une ligne avec marges aérées */}
             <div style={{ width: '100%', display: 'flex', justifyContent: 'center', marginTop: '40px', marginBottom: '40px' }}>
-              <button 
+              <button
                 onClick={matched ? nextUser : handleValidateGuess}
                 style={{
                   width: '100%',
@@ -433,15 +630,7 @@ function App() {
       {/* ── ACTION DIVIDER AREA (Floating Pills between map and card) ── */}
       <div className="absolute top-[50dvh] lg:top-[45dvh] inset-x-0 z-40 flex justify-center -translate-y-[60%] pointer-events-none">
         <AnimatePresence mode="wait">
-          {!matched && !matchStatus && !guessMarker && (
-            <motion.div
-              key="hint"
-              initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }}
-              className="glass-panel bg-slate-800/80 px-6 py-3 rounded-full text-xs font-bold uppercase tracking-widest text-slate-300 pointer-events-auto shadow-xl"
-            >
-              👆 Touche la carte pour deviner
-            </motion.div>
-          )}
+
 
           {!matched && !matchStatus && guessMarker && (
             <motion.div
@@ -623,17 +812,43 @@ function App() {
                     <span className="font-bold text-white text-sm">{activeChat.nom}</span>
                   </div>
                   <div className="flex-grow p-4 overflow-y-auto space-y-4">
-                    {/* Simulation message d'accueil */}
+                    {/* Badge Match Info */}
                     <div className="bg-rose-500/20 text-rose-200 text-[10px] uppercase font-bold text-center tracking-widest py-1 px-3 rounded-full mx-auto w-max mb-4">
                       Nouveau Match (Moins de 30km) !
                     </div>
-                    <div className="bg-slate-800 border border-white/5 p-4 rounded-2xl rounded-tl-sm text-sm text-slate-200 shadow-lg w-[85%] relative">
-                      Salut ! Trop fort, tu m'as trouvé en plein dans le mille ! 😊
-                    </div>
+
+                    {/* Messages Mapping */}
+                    {(chats[activeChat.nom] || [{ role: 'model', text: "Salut ! Trop fort, tu m'as trouvé en plein dans le mille ! 😊" }]).map((msg, idx) => (
+                      <div key={idx} className={`max-w-[85%] p-3.5 rounded-2xl text-sm shadow-lg relative ${msg.role === 'user' ? 'bg-indigo-500 text-white self-end rounded-br-sm ml-auto' : 'bg-slate-800 border border-white/5 text-slate-200 rounded-tl-sm w-max'}`}>
+                        {msg.text}
+                      </div>
+                    ))}
+
+                    {/* Typing Indicator */}
+                    {isTyping && (
+                      <div className="bg-slate-800 border border-white/5 p-3.5 rounded-2xl rounded-tl-sm w-max shadow-lg flex items-center gap-2">
+                        <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></span>
+                        <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                        <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                      </div>
+                    )}
                   </div>
                   <div className="p-4 bg-slate-900 border-t border-white/5 flex gap-2">
-                    <input type="text" placeholder="Écrire un message..." className="flex-grow bg-slate-950 border border-white/10 rounded-full px-5 py-2.5 text-sm text-white focus:outline-none focus:border-rose-500" />
-                    <button className="w-10 h-10 shrink-0 rounded-full bg-rose-500 flex items-center justify-center shadow-lg active:scale-95 transition-transform text-white">💌</button>
+                    <input
+                      type="text"
+                      placeholder="Surprends ton match..."
+                      value={currentMessageInput}
+                      onChange={(e) => setCurrentMessageInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleSendMessage() }}
+                      className="flex-grow bg-slate-950 border border-white/10 rounded-full px-5 py-2.5 text-sm text-white focus:outline-none focus:border-rose-500 transition-colors"
+                    />
+                    <button
+                      onClick={handleSendMessage}
+                      disabled={isTyping || !currentMessageInput.trim()}
+                      className="w-10 h-10 shrink-0 rounded-full bg-rose-500 flex items-center justify-center shadow-lg active:scale-95 transition-transform text-white disabled:opacity-50 disabled:active:scale-100"
+                    >
+                      💌
+                    </button>
                   </div>
                 </div>
               )}
@@ -661,70 +876,7 @@ function App() {
             </div>
 
             <div className="flex-grow overflow-y-auto p-6 relative">
-              {isEditingProfile ? (
-                <div className="flex flex-col gap-5">
-                  <div className="text-center font-bold text-indigo-400 mb-2">Modifier mon profil</div>
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">Photo URL</label>
-                    <input
-                      type="text"
-                      value={myProfile.photo}
-                      onChange={(e) => setMyProfile({ ...myProfile, photo: e.target.value })}
-                      className="w-full mt-1.5 bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
-                    />
-                    <button onClick={() => setMyProfile({ ...myProfile, photo: `https://api.dicebear.com/7.x/avataaars/svg?seed=${Math.random()}` })} className="text-[11px] text-indigo-400 mt-2 hover:text-indigo-300 font-medium px-1 underline underline-offset-2">🔄 Générer un avatar aléatoire</button>
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">Pseudo</label>
-                    <input
-                      type="text"
-                      value={myProfile.pseudo}
-                      onChange={(e) => setMyProfile({ ...myProfile, pseudo: e.target.value })}
-                      className="w-full mt-1.5 bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">Ma Bio</label>
-                    <textarea
-                      value={myProfile.bio}
-                      onChange={(e) => setMyProfile({ ...myProfile, bio: e.target.value })}
-                      className="w-full mt-1.5 bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors resize-none h-28"
-                    />
-                  </div>
-                  <button onClick={() => setIsEditingProfile(false)} className="mt-4 w-full bg-indigo-500 hover:bg-indigo-400 text-white font-bold py-3.5 rounded-full shadow-[0_5px_20px_rgba(99,102,241,0.3)] active:scale-95 transition-transform flex items-center justify-center gap-2">
-                    Enregistrer ✔️
-                  </button>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center text-center mt-2">
-                  <div className="relative group">
-                    <img src={myProfile.photo} alt="Mon Profil" className="w-36 h-36 bg-slate-800 rounded-full object-cover border-4 border-slate-800 shadow-xl" />
-                    <button onClick={() => setIsEditingProfile(true)} className="absolute bottom-1 right-1 w-11 h-11 bg-rose-500 rounded-full border-4 border-slate-950 flex items-center justify-center text-white text-lg shadow-lg hover:bg-rose-400 hover:scale-105 active:scale-95 transition-all">
-                      🖍️
-                    </button>
-                  </div>
-                  <h3 className="mt-6 text-3xl font-serif font-bold text-white drop-shadow-md">{myProfile.pseudo}</h3>
-                  <div className="bg-slate-900 border border-white/5 rounded-3xl p-5 mt-8 w-full shadow-inner relative text-left">
-                    <span className="absolute -top-3 left-6 bg-slate-950 px-3 text-[10px] font-black text-rose-400 tracking-widest rounded-full border border-white/5 py-1">MA BIO</span>
-                    <p className="text-slate-300 text-sm leading-relaxed mt-1 font-medium whitespace-pre-wrap">{myProfile.bio}</p>
-                  </div>
-
-                  <div className="w-full grid grid-cols-2 gap-4 mt-6">
-                    <div className="bg-slate-900 rounded-3xl p-4 flex flex-col items-center justify-center border border-white/5 shadow-md relative overflow-hidden group">
-                      <div className="absolute inset-0 bg-gradient-to-t from-orange-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                      <span className="text-3xl mb-2 opacity-80 relative z-10 group-hover:scale-110 transition-transform">🔥</span>
-                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider text-center relative z-10">Série de Matchs</span>
-                      <span className="font-mono text-xl font-bold text-white mt-1 relative z-10">{myProfile.streak || 0}</span>
-                    </div>
-                    <div className="bg-slate-900 rounded-3xl p-4 flex flex-col items-center justify-center border border-white/5 shadow-md relative overflow-hidden group">
-                      <div className="absolute inset-0 bg-gradient-to-t from-yellow-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                      <span className="text-3xl mb-2 opacity-80 relative z-10 group-hover:scale-110 transition-transform">⭐</span>
-                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider text-center relative z-10">Super Likes</span>
-                      <span className="font-mono text-xl font-bold text-white mt-1 relative z-10">{myProfile.superLikes || 0}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {renderProfileContent()}
             </div>
           </motion.div>
         )}
@@ -838,7 +990,7 @@ function App() {
         <div className="fixed bottom-6 right-6 z-[500] flex flex-col gap-3 items-end">
           <button
             onClick={nextUser}
-            style={{ 
+            style={{
               zIndex: 10000,
               position: 'fixed',
               bottom: '24px',
