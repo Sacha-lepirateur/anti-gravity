@@ -85,9 +85,7 @@ function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const handleAuth = async (e: React.Form
-    
-    Event) => {
+  const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthLoading(true);
     let error = null;
