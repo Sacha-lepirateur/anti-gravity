@@ -12,6 +12,7 @@ import { createClient } from '@supabase/supabase-js'
 const SUPABASE_URL = "https://vromnbvyylhtpxgfwhkt.supabase.co"; // ← ton URL
 const SUPABASE_ANON_KEY = "sb_publishable_O__eJlMAsw8-Cgw2_5vmsw_EHfoXjg1"; // ← ta clé anon
 const GOOGLE_MAPS_API_KEY: string = "AIzaSyAmMk8Lr_fiZ32RdrUT_SHsV8ouvDVG-m0"; // ← METS TA CLE STREET VIEW ICI !
+const HUGGINGFACE_API_KEY: string = import.meta.env.VITE_HUGGINGFACE_API_KEY || ""; // ← clé Hugging Face dans .env, optionnel
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -49,6 +50,14 @@ type Utilisateur = {
   age?: number;
 };
 
+type Message = {
+  id: string;
+  sender: string;
+  receiver: string;
+  content: string;
+  timestamp: string;
+};
+
 // Component that captures map clicks securely based on game state
 function MapClickEvents({ onLocationClick, matched, pointsLocked }: { onLocationClick: (lat: number, lng: number) => void, matched: boolean, pointsLocked: boolean }) {
   useMapEvents({
@@ -60,35 +69,6 @@ function MapClickEvents({ onLocationClick, matched, pointsLocked }: { onLocation
   });
   return null;
 }
-
-const StreetViewComponent = ({ lat, lng, matched }: { lat: number, lng: number, matched: boolean }) => {
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: GOOGLE_MAPS_API_KEY
-  });
-
-  if (!isLoaded) return <div className="w-full h-full flex flex-col items-center justify-center bg-[#1f2937] border-0"><div className="spinner mb-3"></div><div className="text-slate-400 text-xs font-bold uppercase tracking-widest">Chargement...</div></div>;
-
-  return (
-    <div className="w-full h-full" style={{ pointerEvents: matched ? 'none' : 'auto' }}>
-      <GoogleMap mapContainerStyle={{ width: '100%', height: '100%' }}>
-        <StreetViewPanorama
-          options={{
-            position: { lat, lng },
-            visible: true,
-            addressControl: false, // Cache l'adresse et "Sans titre" pour ne pas tricher
-            showRoadLabels: false,
-            zoomControl: true,
-            disableDefaultUI: true, // Cache toutes les UI superflues de Google
-            clickToGo: true,
-            linksControl: true,
-            panControl: true,
-            enableCloseButton: false,
-          }}
-        />
-      </GoogleMap>
-    </div>
-  );
-};
 
 function App() {
   const [session, setSession] = useState<any>(null);
@@ -266,6 +246,8 @@ function App() {
   const [matchedUsers, setMatchedUsers] = useState<Utilisateur[]>([]);
   const [showSidebar, setShowSidebar] = useState(false);
   const [activeChat, setActiveChat] = useState<Utilisateur | null>(null);
+  const [messages, setMessages] = useState<{[key: string]: Message[]}>({});
+  const [newMessage, setNewMessage] = useState('');
 
   // My Profile States
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -308,6 +290,95 @@ function App() {
 
     fetchUtilisateurs();
   }, []);
+
+  // Supabase helper function
+  const supabaseFetch = async (path: string, options?: RequestInit) => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json',
+        ...options?.headers
+      },
+      ...options
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Supabase ${res.status}: ${text}`);
+    }
+
+    return res.json();
+  };
+
+  // Message functions
+  const fetchMessages = async (otherUser: string) => {
+    try {
+      const chatKey = [myProfile.pseudo, otherUser].sort().join('-');
+      const data = await supabaseFetch(`messages?or=(and(sender.eq.${myProfile.pseudo},receiver.eq.${otherUser}),and(sender.eq.${otherUser},receiver.eq.${myProfile.pseudo}))&order=timestamp.asc`);
+      setMessages(prev => ({ ...prev, [chatKey]: data }));
+    } catch (err) {
+      console.log('Error fetching messages:', err);
+    }
+  };
+
+  const sendMessage = async (receiver: string, content: string) => {
+    if (!content.trim()) return;
+
+    try {
+      const messageData = {
+        sender: myProfile.pseudo,
+        receiver,
+        content: content.trim(),
+        timestamp: new Date().toISOString()
+      };
+
+      await supabaseFetch('messages', {
+        method: 'POST',
+        body: JSON.stringify(messageData)
+      });
+
+      const chatKey = [myProfile.pseudo, receiver].sort().join('-');
+      setMessages(prev => ({
+        ...prev,
+        [chatKey]: [...(prev[chatKey] || []), { ...messageData, id: Date.now().toString() }]
+      }));
+      setNewMessage('');
+
+      // Générer une réponse automatique de l'IA après 2-5 secondes
+      const currentMessages = messages[chatKey] || [];
+      const delay = 2000 + Math.random() * 3000; // 2-5 secondes
+      
+      setTimeout(async () => {
+        const aiResponse = await generateAIResponse(content, receiver, [...currentMessages, { ...messageData, id: Date.now().toString() }]);
+        
+        const aiMessageData = {
+          sender: receiver,
+          receiver: myProfile.pseudo,
+          content: aiResponse,
+          timestamp: new Date().toISOString()
+        };
+
+        // Sauvegarder la réponse IA dans la DB aussi
+        try {
+          await supabaseFetch('messages', {
+            method: 'POST',
+            body: JSON.stringify(aiMessageData)
+          });
+        } catch (err) {
+          console.log('Error saving AI response:', err);
+        }
+
+        setMessages(prev => ({
+          ...prev,
+          [chatKey]: [...(prev[chatKey] || []), { ...aiMessageData, id: Date.now().toString() + '_ai' }]
+        }));
+      }, delay);
+
+    } catch (err) {
+      console.log('Error sending message:', err);
+    }
+  };
 
   const handleLocationClick = (lat: number, lng: number) => {
     if (users.length === 0 || matched || pointsLocked) return;
@@ -376,6 +447,69 @@ function App() {
       setDistance(null);
       setTimeLeft(30);
     }
+  };
+
+  // IA Response Generator
+  const generateAIResponse = async (userMessage: string, receiverName: string, conversationHistory: Message[]) => {
+    try {
+      // Si on a une clé Hugging Face, on utilise l'API
+      if (HUGGINGFACE_API_KEY) {
+        const context = conversationHistory.slice(-5).map(msg => 
+          `${msg.sender === myProfile.pseudo ? 'Moi' : receiverName}: ${msg.content}`
+        ).join('\n');
+
+        const prompt = `Tu es ${receiverName}, un utilisateur d'une app de rencontre. Réponds de manière naturelle et engageante à ce message. Contexte de la conversation:\n${context}\n\nMessage reçu: "${userMessage}"\n\nRéponse:`;
+
+        const response = await fetch('https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${HUGGINGFACE_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            inputs: prompt,
+            parameters: {
+              max_length: 100,
+              temperature: 0.8,
+              do_sample: true
+            }
+          })
+        });
+
+        const data = await response.json();
+        return data[0]?.generated_text?.split('Réponse:')[1]?.trim() || getFallbackResponse(userMessage);
+      } else {
+        // Réponses prédéfinies si pas de clé API
+        return getFallbackResponse(userMessage);
+      }
+    } catch (error) {
+      console.log('Erreur IA:', error);
+      return getFallbackResponse(userMessage);
+    }
+  };
+
+  const getFallbackResponse = (userMessage: string): string => {
+    const responses = {
+      'salut': ['Salut ! 😊', 'Hey ! Comment ça va ?', 'Salut toi !'],
+      'ça va': ['Super et toi ?', 'Bien merci ! Et toi ?', 'Ça roule !'],
+      'quoi': ['Rien de spécial, et toi ?', 'Je me détends un peu', 'Je pense à toi 😏'],
+      'où': ['Je suis dans le coin, et toi ?', 'Pas loin d\'ici !', 'Dans la région'],
+      'âge': ['J\'ai 25 ans, et toi ?', '24 ans !', '25 ans 😊'],
+      'travail': ['Je suis développeur', 'Je travaille dans la tech', 'Je suis designer'],
+      'loisir': ['J\'aime voyager et découvrir', 'La musique et les sorties', 'Le sport et la nature'],
+      'rencontre': ['On se voit bientôt ?', 'Ça te dit qu\'on se rencontre ?', 'On pourrait se voir !'],
+      'default': ['Intéressant !', 'Ah oui ?', 'Raconte-moi plus !', 'C\'est cool ça', 'J\'adore !']
+    };
+
+    const lowerMessage = userMessage.toLowerCase();
+    
+    for (const [key, value] of Object.entries(responses)) {
+      if (key !== 'default' && lowerMessage.includes(key)) {
+        return value[Math.floor(Math.random() * value.length)];
+      }
+    }
+    
+    return responses.default[Math.floor(Math.random() * responses.default.length)];
   };
 
   if (loading) {
@@ -869,7 +1003,7 @@ function App() {
                 ) : (
                   <ul className="p-3 space-y-2">
                     {matchedUsers.map((mu, i) => (
-                      <li key={i} onClick={() => setActiveChat(mu)} className="group flex items-center gap-4 p-3 rounded-2xl hover:bg-slate-800 cursor-pointer transition-colors border border-transparent hover:border-white/5">
+                      <li key={i} onClick={() => { setActiveChat(mu); fetchMessages(mu.nom); }} className="group flex items-center gap-4 p-3 rounded-2xl hover:bg-slate-800 cursor-pointer transition-colors border border-transparent hover:border-white/5">
                         <div className="relative">
                           <img src={mu.photo_url} className="w-14 h-14 rounded-full object-cover shadow-md" />
                           <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-slate-900 rounded-full" />
@@ -890,6 +1024,7 @@ function App() {
                     <span className="font-bold text-white text-sm">{activeChat.nom}</span>
                   </div>
                   <div className="flex-grow p-4 overflow-y-auto space-y-4">
+<<<<<<< HEAD
                     {/* Badge Match Info */}
                     <div className="bg-rose-500/20 text-rose-200 text-[10px] uppercase font-bold text-center tracking-widest py-1 px-3 rounded-full mx-auto w-max mb-4">
                       Nouveau Match (Moins de 30km) !
@@ -924,6 +1059,42 @@ function App() {
                       onClick={handleSendMessage}
                       disabled={isTyping || !currentMessageInput.trim()}
                       className="w-10 h-10 shrink-0 rounded-full bg-rose-500 flex items-center justify-center shadow-lg active:scale-95 transition-transform text-white disabled:opacity-50 disabled:active:scale-100"
+=======
+                    {/* Badge Match Info */}
+                    <div className="bg-rose-500/20 text-rose-200 text-[10px] uppercase font-bold text-center tracking-widest py-1 px-3 rounded-full mx-auto w-max mb-4">
+                      Nouveau Match (Moins de 30km) !
+                    </div>
+
+                    {/* Messages Mapping */}
+                    {(chats[activeChat.nom] || [{ role: 'model', text: "Salut ! Trop fort, tu m'as trouvé en plein dans le mille ! 😊" }]).map((msg, idx) => (
+                      <div key={idx} className={`max-w-[85%] p-3.5 rounded-2xl text-sm shadow-lg relative ${msg.role === 'user' ? 'bg-indigo-500 text-white self-end rounded-br-sm ml-auto' : 'bg-slate-800 border border-white/5 text-slate-200 rounded-tl-sm w-max'}`}>
+                        {msg.text}
+                      </div>
+                    ))}
+
+                    {/* Typing Indicator */}
+                    {isTyping && (
+                      <div className="bg-slate-800 border border-white/5 p-3.5 rounded-2xl rounded-tl-sm w-max shadow-lg flex items-center gap-2">
+                        <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></span>
+                        <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                        <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-4 bg-slate-900 border-t border-white/5 flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Surprends ton match..."
+                      value={currentMessageInput}
+                      onChange={(e) => setCurrentMessageInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleSendMessage() }}
+                      className="flex-grow bg-slate-950 border border-white/10 rounded-full px-5 py-2.5 text-sm text-white focus:outline-none focus:border-rose-500 transition-colors"
+                    />
+                    <button
+                      onClick={handleSendMessage}
+                      disabled={isTyping || !currentMessageInput.trim()}
+                      className="w-10 h-10 shrink-0 rounded-full bg-rose-500 flex items-center justify-center shadow-lg active:scale-95 transition-transform text-white disabled:opacity-50 disabled:active:scale-100"
+>>>>>>> db453a28ade0fdf75c59244ed579b61dc757962a
                     >
                       💌
                     </button>
