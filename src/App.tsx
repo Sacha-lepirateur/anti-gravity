@@ -4,6 +4,7 @@ import L from 'leaflet'
 import { motion, AnimatePresence } from 'framer-motion'
 import confetti from 'canvas-confetti'
 import { GoogleMap, StreetViewPanorama, useJsApiLoader } from '@react-google-maps/api'
+import { createClient } from '@supabase/supabase-js'
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║   🔧 CONFIGURE ICI — METS TES CLES API (DB + GOOGLE)    ║
@@ -11,6 +12,8 @@ import { GoogleMap, StreetViewPanorama, useJsApiLoader } from '@react-google-map
 const SUPABASE_URL = "https://vromnbvyylhtpxgfwhkt.supabase.co"; // ← ton URL
 const SUPABASE_ANON_KEY = "sb_publishable_O__eJlMAsw8-Cgw2_5vmsw_EHfoXjg1"; // ← ta clé anon
 const GOOGLE_MAPS_API_KEY: string = "AIzaSyAmMk8Lr_fiZ32RdrUT_SHsV8ouvDVG-m0"; // ← METS TA CLE STREET VIEW ICI !
+
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 type ChatMessage = { role: 'user' | 'model'; text: string };
 
@@ -88,6 +91,36 @@ const StreetViewComponent = ({ lat, lng, matched }: { lat: number, lng: number, 
 };
 
 function App() {
+  const [session, setSession] = useState<any>(null);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [isLoginMode, setIsLoginMode] = useState(true);
+  const [authLoading, setAuthLoading] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    let error = null;
+    if (isLoginMode) {
+      const res = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
+      error = res.error;
+    } else {
+      const res = await supabase.auth.signUp({ email: authEmail, password: authPassword });
+      error = res.error;
+      if (!error) alert("Inscription réussie !");
+    }
+    if (error) alert("Erreur : " + error.message);
+    setAuthLoading(false);
+  };
+
   const [userPos, setUserPos] = useState<{ lat: number, lon: number } | null>(null);
 
   useEffect(() => {
@@ -372,9 +405,57 @@ function App() {
 
   const user = users[currentIndex];
 
-  const renderProfileContent = () => (
-    <div className="flex-grow overflow-y-auto relative w-full h-full pb-4">
-      {isEditingProfile ? (
+  const renderProfileContent = () => {
+    if (!session) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full w-full max-w-sm mx-auto text-left py-2 pb-6">
+          <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center text-4xl mb-4 border border-rose-500/50 shadow-[0_0_20px_rgba(244,63,94,0.3)]">
+            🔒
+          </div>
+          <h2 className="text-3xl font-serif font-bold text-white mb-2">{isLoginMode ? "Connexion" : "Inscription"}</h2>
+          <p className="text-slate-400 text-sm mb-6 text-center leading-relaxed">Connecte-toi pour sauvegarder ton profil et discuter avec tes Matchs.</p>
+
+          <form onSubmit={handleAuth} className="w-full flex flex-col gap-4 relative z-10 pointer-events-auto border-t border-white/10 pt-6">
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">Email</label>
+              <input
+                type="email"
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                required
+                className="w-full mt-1.5 bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-rose-500 transition-colors pointer-events-auto"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">Mot de passe</label>
+              <input
+                type="password"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                required
+                className="w-full mt-1.5 bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-rose-500 transition-colors pointer-events-auto"
+              />
+            </div>
+            
+            <button type="submit" disabled={authLoading} style={{ pointerEvents: 'auto' }} className="mt-4 z-20 pointer-events-auto w-full bg-rose-500 hover:bg-rose-400 disabled:bg-slate-700 text-white font-bold py-3.5 rounded-full shadow-[0_5px_20px_rgba(244,63,94,0.3)] active:scale-95 transition-transform flex items-center justify-center gap-2">
+              {authLoading ? "⏳ Chargement..." : (isLoginMode ? "Se connecter ➡️" : "Créer le compte 🚀")}
+            </button>
+          </form>
+
+          <button
+            style={{ pointerEvents: 'auto' }}
+            onClick={(e) => { e.preventDefault(); setIsLoginMode(!isLoginMode); }}
+            className="mt-6 z-20 text-sm text-indigo-400 hover:text-indigo-300 transition underline underline-offset-4 pointer-events-auto"
+          >
+            {isLoginMode ? "Pas encore de compte ? S'inscrire" : "Déjà un compte ? Se connecter"}
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex-grow overflow-y-auto relative w-full h-full pb-4">
+        {isEditingProfile ? (
         <div className="flex flex-col gap-4 text-left w-full max-w-md mx-auto">
           <div className="text-center font-bold text-indigo-400 mb-2">Modifier mon profil & Réglages</div>
           <div>
@@ -457,10 +538,12 @@ function App() {
               <span className="font-mono text-xl font-bold text-white relative z-10">{myProfile.superLikes || 0}</span>
             </div>
           </div>
+          <button onClick={() => supabase.auth.signOut()} style={{ pointerEvents: 'auto' }} className="mt-8 w-full max-w-xs block mx-auto bg-slate-900/50 text-rose-400 font-bold py-3 rounded-full border border-rose-500/20 hover:bg-rose-500/10 cursor-pointer pointer-events-auto transition active:scale-95">Se déconnecter 🚪</button>
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   return (
     <div className="relative min-h-[100dvh] w-full flex flex-col grain-bg bg-slate-950 text-slate-50 overflow-y-auto">
@@ -485,10 +568,11 @@ function App() {
                 
                 <button 
                   onClick={() => setGameStarted(true)}
-                  className="bg-rose-500 hover:bg-rose-400 text-white font-black px-12 py-6 rounded-[2rem] text-2xl shadow-[0_15px_50px_rgba(244,63,94,0.4)] active:scale-95 transition-all w-full md:w-max mx-auto lg:mx-0 uppercase tracking-widest border border-rose-400/50"
+                  disabled={!session}
+                  className={`font-black px-12 py-6 rounded-[2rem] text-2xl active:scale-95 transition-all w-full md:w-max mx-auto lg:mx-0 uppercase tracking-widest border border-rose-400/50 ${!session ? "bg-slate-800 text-slate-500 cursor-not-allowed opacity-50" : "bg-rose-500 hover:bg-rose-400 text-white shadow-[0_15px_50px_rgba(244,63,94,0.4)]"}`}
                   style={{ pointerEvents: 'auto' }}
                 >
-                  START MATCHING 🚀
+                  {session ? "START MATCHING 🚀" : "CONNEXION REQUISE 🔒"}
                 </button>
               </div>
 
@@ -632,20 +716,7 @@ function App() {
         <AnimatePresence mode="wait">
 
 
-          {!matched && !matchStatus && guessMarker && (
-            <motion.div
-              key="validate"
-              initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }}
-              className="pointer-events-auto"
-            >
-              <button
-                onClick={handleValidateGuess}
-                className="bg-indigo-500 hover:bg-indigo-400 text-white px-8 py-4 rounded-full text-sm font-bold uppercase shadow-[0_5px_20px_rgba(99,102,241,0.5)] border border-indigo-400 flex items-center gap-2 active:scale-95 transition-transform"
-              >
-                Valider ce point 📍
-              </button>
-            </motion.div>
-          )}
+          {/* Bouton de validation redondant retiré */}
 
           {!matched && matchStatus && (
             <motion.div
