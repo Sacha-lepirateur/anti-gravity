@@ -653,9 +653,16 @@ function App() {
              </div>
           )}
 
-          <div className="bg-slate-900/80 border border-white/5 rounded-3xl p-5 mt-6 w-full shadow-inner relative text-left">
+          <div className="bg-slate-900/80 border border-white/5 rounded-3xl p-5 mt-6 w-full shadow-inner relative text-left group/bio">
             <span className="absolute -top-3 left-6 bg-slate-900 px-3 text-[10px] font-black text-rose-400 tracking-widest rounded-full border border-white/5 py-1">MA BIO</span>
-            <p className="text-slate-300 text-sm leading-relaxed mt-1 font-medium whitespace-pre-wrap">{myProfile.bio}</p>
+            <button 
+              onClick={() => setIsEditingProfile(true)} 
+              className="absolute top-2 right-2 text-xs opacity-50 hover:opacity-100 hover:scale-110 active:scale-95 transition-all bg-slate-950/50 rounded-full w-8 h-8 flex items-center justify-center border border-white/10"
+              title="Modifier ma bio"
+            >
+              ✏️
+            </button>
+            <p className="text-slate-300 text-sm leading-relaxed mt-1 font-medium whitespace-pre-wrap pr-8">{myProfile.bio}</p>
           </div>
 
           <div className="w-full grid grid-cols-2 gap-4 mt-5">
