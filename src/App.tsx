@@ -1024,7 +1024,6 @@ function App() {
                     <span className="font-bold text-white text-sm">{activeChat.nom}</span>
                   </div>
                   <div className="flex-grow p-4 overflow-y-auto space-y-4">
-<<<<<<< HEAD
                     {/* Badge Match Info */}
                     <div className="bg-rose-500/20 text-rose-200 text-[10px] uppercase font-bold text-center tracking-widest py-1 px-3 rounded-full mx-auto w-max mb-4">
                       Nouveau Match (Moins de 30km) !
@@ -1059,42 +1058,6 @@ function App() {
                       onClick={handleSendMessage}
                       disabled={isTyping || !currentMessageInput.trim()}
                       className="w-10 h-10 shrink-0 rounded-full bg-rose-500 flex items-center justify-center shadow-lg active:scale-95 transition-transform text-white disabled:opacity-50 disabled:active:scale-100"
-=======
-                    {/* Badge Match Info */}
-                    <div className="bg-rose-500/20 text-rose-200 text-[10px] uppercase font-bold text-center tracking-widest py-1 px-3 rounded-full mx-auto w-max mb-4">
-                      Nouveau Match (Moins de 30km) !
-                    </div>
-
-                    {/* Messages Mapping */}
-                    {(chats[activeChat.nom] || [{ role: 'model', text: "Salut ! Trop fort, tu m'as trouvé en plein dans le mille ! 😊" }]).map((msg, idx) => (
-                      <div key={idx} className={`max-w-[85%] p-3.5 rounded-2xl text-sm shadow-lg relative ${msg.role === 'user' ? 'bg-indigo-500 text-white self-end rounded-br-sm ml-auto' : 'bg-slate-800 border border-white/5 text-slate-200 rounded-tl-sm w-max'}`}>
-                        {msg.text}
-                      </div>
-                    ))}
-
-                    {/* Typing Indicator */}
-                    {isTyping && (
-                      <div className="bg-slate-800 border border-white/5 p-3.5 rounded-2xl rounded-tl-sm w-max shadow-lg flex items-center gap-2">
-                        <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></span>
-                        <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                        <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="p-4 bg-slate-900 border-t border-white/5 flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="Surprends ton match..."
-                      value={currentMessageInput}
-                      onChange={(e) => setCurrentMessageInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') handleSendMessage() }}
-                      className="flex-grow bg-slate-950 border border-white/10 rounded-full px-5 py-2.5 text-sm text-white focus:outline-none focus:border-rose-500 transition-colors"
-                    />
-                    <button
-                      onClick={handleSendMessage}
-                      disabled={isTyping || !currentMessageInput.trim()}
-                      className="w-10 h-10 shrink-0 rounded-full bg-rose-500 flex items-center justify-center shadow-lg active:scale-95 transition-transform text-white disabled:opacity-50 disabled:active:scale-100"
->>>>>>> db453a28ade0fdf75c59244ed579b61dc757962a
                     >
                       💌
                     </button>
